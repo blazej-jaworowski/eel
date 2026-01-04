@@ -498,8 +498,7 @@ Third line! :)"#
 
         let mut data = String::new();
 
-        // Neovim segfaults when this number is bigger
-        for i in 0..9000 {
+        for i in 0..20000 {
             let line = format!("{i}\n");
             buffer
                 .write()
@@ -528,7 +527,7 @@ Third line! :)"#
         async move {
             let buffer = new_buffer_with_content(&editor, "").await;
 
-            let mut nums = (0..9000).map(|i| i.to_string()).collect::<Vec<_>>();
+            let mut nums = (0..20000).map(|i| i.to_string()).collect::<Vec<_>>();
 
             let futures = nums
                 .clone()
@@ -583,8 +582,8 @@ Third line! :)"#
             eel_buffer_tests!(@test test_buffer_append, $test_tag);
             eel_buffer_tests!(@test test_buffer_prepend, $test_tag);
             eel_buffer_tests!(@test test_buffer_pos_append, $test_tag);
-            eel_buffer_tests!(@test test_buffer_set_text_parallel, $test_tag);
             eel_buffer_tests!(@test test_buffer_append_many, $test_tag);
+            eel_buffer_tests!(@test test_buffer_set_text_parallel, $test_tag);
         };
     }
 }
