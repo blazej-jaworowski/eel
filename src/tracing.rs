@@ -14,13 +14,35 @@ pub fn file_log_layer(log_dir: impl Into<String>) -> TracingLayer {
 }
 
 pub fn init_tracing(layers: impl Into<Vec<TracingLayer>>) {
-    tracing_subscriber::registry()
-        .with(layers.into())
-        .with(
-            EnvFilter::builder()
-                .with_default_directive(LevelFilter::INFO.into())
-                .from_env_lossy(),
+    let layers: Vec<TracingLayer> = layers.into();
+
+    #[cfg(feature = "tokio-console")]
+    let layers = {
+        let mut layers = layers;
+        layers.insert(0, Box::new(console_subscriber::spawn()));
+        layers
+    };
+
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy();
+
+    #[cfg(feature = "tokio-console")]
+    let env_filter = env_filter
+        .add_directive(
+            "tokio=trace"
+                .parse()
+                .expect("This should be a valid directive"),
         )
+        .add_directive(
+            "runtime=trace"
+                .parse()
+                .expect("This should be a valid directive"),
+        );
+
+    tracing_subscriber::registry()
+        .with(layers)
+        .with(env_filter)
         .init();
 }
 
