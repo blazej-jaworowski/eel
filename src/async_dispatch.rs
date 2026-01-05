@@ -1,4 +1,4 @@
-use std::{sync::mpsc, thread::ThreadId};
+use std::{rc::Rc, sync::mpsc, thread::ThreadId};
 
 use futures::{TryFutureExt, future::Either};
 use tokio::sync::oneshot;
@@ -43,25 +43,37 @@ impl Dispatcher {
     pub fn new(nvim_thread_id: ThreadId) -> Result<Dispatcher> {
         let (tx, rx) = mpsc::channel::<Box<dyn FnOnce() + Send>>();
 
-        let async_handle = AsyncHandle::new(move || {
-            trace!("Async handle called");
+        // In theory this function can be called on a different thread than the inner AsyncHandle
+        // function, and Rc is not Send. But we don't clone it and we pass it straight into the
+        // AsyncHandle, so using Rc should be fine.
+        let rx = Rc::new(rx);
 
-            loop {
-                match rx.try_recv() {
-                    Ok(f) => {
-                        trace!("Function received by async handle");
-                        f();
-                    }
-                    Err(mpsc::TryRecvError::Empty) => {
-                        trace!("Func channel empty");
-                        return;
-                    }
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        error!("Func channel disconnected");
-                        return;
+        let async_handle = AsyncHandle::new(move || {
+            trace!("Async handle called, scheduling call on the main neovim thread");
+
+            let rx = rx.clone();
+
+            // We have to call vim.schedule because of libuv recursion issues causing crashes.
+            nvim_oxi::schedule(move |()| {
+                trace!("Dispatched function called on the main neovim thread");
+
+                loop {
+                    match rx.try_recv() {
+                        Ok(f) => {
+                            trace!("Function received by async handle");
+                            f();
+                        }
+                        Err(mpsc::TryRecvError::Empty) => {
+                            trace!("Func channel empty");
+                            return;
+                        }
+                        Err(mpsc::TryRecvError::Disconnected) => {
+                            error!("Func channel disconnected");
+                            return;
+                        }
                     }
                 }
-            }
+            });
         })
         .map_err(|e| NvimError::from(Error::from(e)))?;
 
