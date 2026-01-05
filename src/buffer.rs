@@ -96,7 +96,7 @@ impl NvimBuffer {
             })
             .await?;
 
-        Ok(nvim_window.map(NvimWindow::wrap))
+        Ok(nvim_window.map(|w| NvimWindow::wrap(w, self.dispatcher.clone())))
     }
 }
 
@@ -154,6 +154,8 @@ impl Buffer for NvimBuffer {
                     text.split("\n"),
                 )?;
 
+                // We only have to redraw if the buffer is visible, not sure if checking buffer
+                // visibility would be faster though.
                 nvim_oxi::api::command("redraw")?;
 
                 Ok::<_, NvimError>(())
@@ -168,7 +170,7 @@ impl Buffer for NvimBuffer {
 impl CursorBuffer for NvimBuffer {
     async fn get_cursor(&self) -> Result<Position> {
         let position: Position = match self.get_window().await? {
-            Some(w) => w.get_cursor()?,
+            Some(w) => w.get_cursor().await?,
             None => {
                 let native: NativePosition = self.inner_buf().get_mark('\"').into_nvim()?.into();
                 native.into()
@@ -186,7 +188,7 @@ impl CursorBuffer for NvimBuffer {
         self.validate_pos(position).await?;
 
         match &mut self.get_window().await? {
-            Some(w) => w.set_cursor(position)?,
+            Some(w) => w.set_cursor(position).await?,
             None => {
                 let native: NativePosition = position.clone().into();
                 self.inner_buf()

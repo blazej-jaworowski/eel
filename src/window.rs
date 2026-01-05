@@ -1,24 +1,49 @@
+use std::sync::Arc;
+
 use eel::{Position, Result};
 
-use crate::{buffer::NativePosition, error::IntoNvimResult};
+use crate::{async_dispatch::Dispatcher, buffer::NativePosition, error::IntoNvimResult};
 
-pub struct NvimWindow(nvim_oxi::api::Window);
+pub struct NvimWindow {
+    inner: nvim_oxi::api::Window,
+    dispatcher: Arc<Dispatcher>,
+}
 
 impl NvimWindow {
-    pub fn wrap(window: nvim_oxi::api::Window) -> Self {
-        NvimWindow(window)
+    pub fn wrap(window: nvim_oxi::api::Window, dispatcher: Arc<Dispatcher>) -> Self {
+        NvimWindow {
+            inner: window,
+            dispatcher,
+        }
     }
 }
 
 impl NvimWindow {
-    pub fn get_cursor(&self) -> Result<Position> {
-        let native: NativePosition = self.0.get_cursor().into_nvim()?.into();
+    pub async fn get_cursor(&self) -> Result<Position> {
+        let window = self.inner.clone();
+
+        let native: NativePosition = self
+            .dispatcher
+            .dispatch(move || window.get_cursor().into_nvim())
+            .await??
+            .into();
+
         Ok(native.into())
     }
 
-    pub fn set_cursor(&mut self, position: &Position) -> Result<()> {
+    pub async fn set_cursor(&mut self, position: &Position) -> Result<()> {
         let native: NativePosition = position.clone().into();
-        self.0.set_cursor(native.row, native.col).into_nvim()?;
+
+        let mut window = self.inner.clone();
+
+        self.dispatcher
+            .dispatch(move || {
+                window.set_cursor(native.row, native.col).into_nvim()?;
+
+                nvim_oxi::api::command("redraw").into_nvim()
+            })
+            .await??;
+
         Ok(())
     }
 }
