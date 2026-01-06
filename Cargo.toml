@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "core",
+    "nvim/eel-nvim",
+    "nvim/eel-nvim-macros",
+]

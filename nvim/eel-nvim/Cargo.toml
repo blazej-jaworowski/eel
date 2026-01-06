@@ -7,8 +7,8 @@ edition = "2024"
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-eel = { version = "0.0.1", git = "https://github.com/blazej-jaworowski/eel" }
-eel-nvim-macros = { version = "0.0.1", git = "https://github.com/blazej-jaworowski/eel-nvim-macros", optional = true }
+eel = { version = "0.0.1", path = "../../core" }
+eel-nvim-macros = { version = "0.0.1", path = "../eel-nvim-macros", optional = true }
 
 async-trait = "0.1.89"
 futures = "0.3.31"
