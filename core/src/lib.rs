@@ -12,6 +12,7 @@ pub use position::Position;
 
 pub mod buffer;
 pub mod cursor;
+pub mod marks;
 
 #[cfg(feature = "tests")]
 pub mod test_utils;

@@ -1,11 +1,13 @@
 use std::{ops::RangeBounds, sync::Arc};
 
 use async_trait::async_trait;
+use nvim_oxi::api::opts::{GetExtmarkByIdOpts, SetExtmarkOpts};
 use tokio::sync::RwLock;
 use tracing::trace;
 
 use crate::{
     async_dispatch::Dispatcher,
+    editor::get_eel_namespace,
     error::{Error as NvimError, IntoNvimResult as _},
     window::NvimWindow,
 };
@@ -14,6 +16,7 @@ use eel::{
     Position, Result,
     buffer::{Buffer, BufferHandle},
     cursor::CursorBuffer,
+    marks::{MarkId, MarksBuffer},
 };
 
 /// Represents a loordinate location within a Neovim buffer.
@@ -201,6 +204,92 @@ impl CursorBuffer for NvimBuffer {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct NvimMarkId(u32);
+
+impl From<u32> for NvimMarkId {
+    fn from(value: u32) -> Self {
+        NvimMarkId(value)
+    }
+}
+
+impl From<NvimMarkId> for u32 {
+    fn from(value: NvimMarkId) -> Self {
+        value.0
+    }
+}
+
+impl From<&NvimMarkId> for u32 {
+    fn from(value: &NvimMarkId) -> Self {
+        value.0
+    }
+}
+
+impl MarkId for NvimMarkId {}
+
+#[async_trait]
+impl MarksBuffer for NvimBuffer {
+    type MarkId = NvimMarkId;
+
+    async fn create_mark(&mut self, pos: &Position) -> Result<NvimMarkId> {
+        let native_pos: NativePosition = pos.clone().into();
+        let mut buf = self.inner_buf();
+
+        let extmark_id = self
+            .dispatcher
+            .dispatch(move || {
+                buf.set_extmark(
+                    get_eel_namespace(),
+                    native_pos.row - 1,
+                    native_pos.col - 1,
+                    &SetExtmarkOpts::default(),
+                )
+            })
+            .await?
+            .into_nvim()?;
+
+        Ok(extmark_id.into())
+    }
+
+    async fn destroy_mark(&mut self, id: Self::MarkId) -> Result<()> {
+        // TODO: Return specific Error::Destroyed error when accessing destroyed mark
+
+        let mut buf = self.inner_buf();
+
+        Ok(buf
+            .del_extmark(get_eel_namespace(), id.into())
+            .into_nvim()?)
+    }
+
+    async fn get_mark_position(&self, id: Self::MarkId) -> Result<Position> {
+        let buf = self.inner_buf();
+
+        let (row, col, _) = buf
+            .get_extmark_by_id(
+                get_eel_namespace(),
+                id.into(),
+                &GetExtmarkByIdOpts::default(),
+            )
+            .into_nvim()?;
+
+        Ok(Position::new(row, col))
+    }
+    async fn set_mark_position(&mut self, id: Self::MarkId, pos: &Position) -> Result<()> {
+        let native_pos: NativePosition = pos.clone().into();
+        let mut buf = self.inner_buf();
+
+        buf.set_extmark(
+            get_eel_namespace(),
+            native_pos.row - 1,
+            native_pos.col - 1,
+            &SetExtmarkOpts::builder().id(id.into()).build(),
+        )
+        .into_nvim()?;
+
+        Ok(())
+    }
+}
+
 #[derive(Clone, derivative::Derivative)]
 #[derivative(Debug)]
 pub struct NvimBufferHandle {
@@ -261,7 +350,7 @@ impl BufferHandle<NvimBuffer> for NvimBufferHandle {
 #[cfg(feature = "nvim-tests")]
 mod tests {
     use crate::{editor::NvimEditor, test_utils::run_nvim_async_test};
-    use eel::{eel_buffer_tests, eel_cursor_buffer_tests};
+    use eel::{eel_buffer_tests, eel_cursor_buffer_tests, eel_marks_buffer_tests};
     use eel_nvim_macros::nvim_test;
 
     #[nvim_test]
@@ -277,4 +366,5 @@ mod tests {
 
     eel_buffer_tests!(nvim_test);
     eel_cursor_buffer_tests!(nvim_test);
+    eel_marks_buffer_tests!(nvim_test);
 }

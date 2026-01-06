@@ -114,3 +114,7 @@ impl Editor for NvimEditor {
         Ok(self.buffer_store.get_buffer_handle(buf).await)
     }
 }
+
+pub(crate) fn get_eel_namespace() -> u32 {
+    nvim_oxi::api::create_namespace("eel")
+}
