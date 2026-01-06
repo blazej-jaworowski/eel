@@ -3,11 +3,14 @@ use std::sync::Arc;
 use tracing::{Level, level_filters::LevelFilter};
 use tracing_subscriber::{Layer, filter::Targets, fmt::MakeWriter};
 
-use eel::tracing::TracingLayer;
+use eel::{
+    async_runtime,
+    tracing::{ResultExt, TracingLayer},
+};
 
 use nvim_oxi::api as nvim_api;
 
-use crate::editor::NvimEditor;
+use crate::{editor::NvimEditor, error::IntoNvimResult};
 
 struct NvimIoWriter {
     editor: Arc<NvimEditor>,
@@ -32,9 +35,19 @@ impl std::io::Write for NvimIoWriter {
             _ => return Ok(len),
         };
 
-        _ = self.editor.dispatch(move || {
-            nvim_api::echo([(message, highlight)], false, &Default::default())?;
-            nvim_api::command("redraw")
+        let editor = self.editor.clone();
+        async_runtime::spawn(async move {
+            editor
+                .dispatch(move || {
+                    nvim_api::echo([(message, highlight)], false, &Default::default())?;
+                    nvim_api::command("redraw")
+                })
+                .await
+                .log_err_msg("Failed to dispatch log echo")?
+                .into_nvim()
+                .log_err_msg("Log echo failed")?;
+
+            Ok::<_, eel::Error>(())
         });
 
         Ok(len)
