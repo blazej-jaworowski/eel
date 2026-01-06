@@ -258,7 +258,7 @@ impl BufferHandle<NvimBuffer> for NvimBufferHandle {
     }
 }
 
-#[cfg(feature = "nvim_tests")]
+#[cfg(feature = "nvim-tests")]
 mod tests {
     use crate::{editor::NvimEditor, test_utils::run_nvim_async_test};
     use eel::{eel_buffer_tests, eel_cursor_buffer_tests};

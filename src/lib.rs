@@ -10,5 +10,5 @@ pub mod lua;
 
 pub use nvim_oxi;
 
-#[cfg(feature = "nvim_tests")]
+#[cfg(feature = "nvim-tests")]
 pub mod test_utils;
