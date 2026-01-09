@@ -87,28 +87,32 @@ pub mod tests {
     #[doc(hidden)]
     pub use paste::paste;
 
-    pub async fn _test_buffer_marks_basic<E>(editor: E) -> anyhow::Result<()>
+    pub async fn _test_buffer_marks_basic<E>(editor: E)
     where
         E: Editor,
         E::Buffer: MarksBuffer,
     {
         let buffer = new_buffer_with_content(&editor, "test\ntest2").await;
 
-        let mark = MarkHandle::new(&buffer, &Position::new(0, 1)).await?;
+        let mark = MarkHandle::new(&buffer, &Position::new(0, 1))
+            .await
+            .expect("Failed to create mark");
 
-        let position = mark.get_position().await?;
+        let position = mark.get_position().await.expect("Failed to get position");
 
         assert_eq!(position, Position::new(0, 1));
 
-        mark.set_position(&Position::new(1, 0)).await?;
+        mark.set_position(&Position::new(1, 0))
+            .await
+            .expect("Failed to set position");
 
-        let position = mark.get_position().await?;
+        let position = mark.get_position().await.expect("Failed to get position");
 
         assert_eq!(position, Position::new(1, 0));
 
         {
             let mark = mark.clone();
-            mark.destroy().await?;
+            mark.destroy().await.expect("Failed to destroy mark");
         }
 
         // TODO: Verify specific error
@@ -116,18 +120,18 @@ pub mod tests {
             mark.get_position().await.is_err(),
             "Operation on a destroyed mark should error"
         );
-
-        Ok(())
     }
 
-    pub async fn _test_buffer_marks_set_text<E>(editor: E) -> anyhow::Result<()>
+    pub async fn _test_buffer_marks_set_text<E>(editor: E)
     where
         E: Editor,
         E::Buffer: MarksBuffer,
     {
         let buffer = new_buffer_with_content(&editor, "First line").await;
 
-        let mark = MarkHandle::new(&buffer, &Position::new(0, 6)).await?;
+        let mark = MarkHandle::new(&buffer, &Position::new(0, 6))
+            .await
+            .expect("Failed to create mark");
 
         buffer
             .write()
@@ -137,13 +141,12 @@ pub mod tests {
                 &Position::new(0, 6),
                 "(actually) line\nSecond ",
             )
-            .await?;
+            .await
+            .expect("Failed to set text");
 
-        let position = mark.get_position().await?;
+        let position = mark.get_position().await.expect("Failed to get position");
 
         assert_eq!(position, Position::new(1, 7));
-
-        Ok(())
     }
 
     // TODO: More tests. This has many edge cases that need to have defined behaviour.
@@ -158,7 +161,7 @@ pub mod tests {
                     E: $crate::Editor,
                     E::Buffer: $crate::marks::MarksBuffer,
                 {
-                    $crate::marks::tests::[< _ $test_name >](editor).await.expect("Error occured");
+                    $crate::marks::tests::[< _ $test_name >](editor).await;
                 }
             }
         };
