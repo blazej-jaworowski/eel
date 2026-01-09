@@ -25,7 +25,7 @@ pub trait MarksBuffer: Buffer {
 }
 
 #[derive(Debug)]
-pub struct Mark<B>
+pub struct MarkHandle<B>
 where
     B: BufferHandle,
     B::Buffer: MarksBuffer,
@@ -34,7 +34,7 @@ where
     buffer: B,
 }
 
-impl<B: Clone> Clone for Mark<B>
+impl<B: Clone> Clone for MarkHandle<B>
 where
     B: BufferHandle,
     B::Buffer: MarksBuffer,
@@ -47,7 +47,7 @@ where
     }
 }
 
-impl<B> Mark<B>
+impl<B> MarkHandle<B>
 where
     B: BufferHandle,
     B::Buffer: MarksBuffer,
@@ -94,7 +94,7 @@ pub mod tests {
     {
         let buffer = new_buffer_with_content(&editor, "test\ntest2").await;
 
-        let mark = Mark::new(&buffer, &Position::new(0, 1)).await?;
+        let mark = MarkHandle::new(&buffer, &Position::new(0, 1)).await?;
 
         let position = mark.get_position().await?;
 
@@ -127,7 +127,7 @@ pub mod tests {
     {
         let buffer = new_buffer_with_content(&editor, "First line").await;
 
-        let mark = Mark::new(&buffer, &Position::new(0, 6)).await?;
+        let mark = MarkHandle::new(&buffer, &Position::new(0, 6)).await?;
 
         buffer
             .write()
