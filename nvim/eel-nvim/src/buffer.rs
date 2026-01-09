@@ -19,7 +19,7 @@ use eel::{
     marks::{MarkId, MarksBuffer},
 };
 
-/// Represents a loordinate location within a Neovim buffer.
+/// Represents a coordinate location within a Neovim buffer.
 ///
 /// # Coordinate System
 ///

@@ -1,16 +1,14 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::{Arc, mpsc};
 
 use tracing::debug;
 
 use crate::{editor::NvimEditor, lua::lua_get_global_path};
 
-pub fn run_nvim_async_test<F, T>(test: F)
+pub fn run_nvim_async_test<F, T, R>(test: F) -> R
 where
+    R: Send + 'static,
     F: FnOnce(NvimEditor) -> T,
-    T: Future<Output = ()> + Send + 'static,
+    T: Future<Output = R> + Send + 'static,
 {
     eel::tracing::init_tracing([eel::tracing::file_log_layer("/tmp/eel")]);
 
@@ -18,18 +16,17 @@ where
     let editor = NvimEditor::new_on_current().expect("Failed to initialize NvimEditor");
 
     let test = test(editor);
-    let out = Arc::new(AtomicBool::new(false));
+    let (send, recv) = mpsc::channel();
 
     let test_handle = {
-        let out = out.clone();
         eel::async_runtime::spawn(async move {
             debug!("Running test future");
 
-            test.await;
+            let result = test.await;
 
             debug!("Test successfully finished");
 
-            out.store(true, Ordering::Release);
+            send.send(result).expect("Test result send error");
         })
     };
 
@@ -54,5 +51,6 @@ where
     }
 
     assert!(wait_result, "Test timed out");
-    assert!(out.load(Ordering::Acquire), "Test didn't succeed")
+
+    recv.try_recv().expect("Failed to get test result")
 }
