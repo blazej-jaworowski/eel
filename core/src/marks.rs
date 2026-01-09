@@ -11,7 +11,7 @@ pub enum Error {
     Destroyed,
 }
 
-pub trait MarkId: Clone + Copy + Sync + Send {}
+pub trait MarkId: std::fmt::Debug + Clone + Copy + Sync + Send {}
 
 #[async_trait]
 pub trait MarksBuffer: Buffer {
@@ -25,19 +25,19 @@ pub trait MarksBuffer: Buffer {
 }
 
 #[derive(Debug)]
-pub struct Mark<B, BH>
+pub struct Mark<B>
 where
-    B: MarksBuffer,
-    BH: BufferHandle<B>,
+    B: BufferHandle,
+    B::Buffer: MarksBuffer,
 {
-    id: B::MarkId,
-    buffer: BH,
+    id: <B::Buffer as MarksBuffer>::MarkId,
+    buffer: B,
 }
 
-impl<B, BH> Clone for Mark<B, BH>
+impl<B: Clone> Clone for Mark<B>
 where
-    B: MarksBuffer,
-    BH: BufferHandle<B>,
+    B: BufferHandle,
+    B::Buffer: MarksBuffer,
 {
     fn clone(&self) -> Self {
         Self {
@@ -47,12 +47,12 @@ where
     }
 }
 
-impl<B, BH> Mark<B, BH>
+impl<B> Mark<B>
 where
-    B: MarksBuffer,
-    BH: BufferHandle<B>,
+    B: BufferHandle,
+    B::Buffer: MarksBuffer,
 {
-    pub async fn new(buffer: &BH, position: &Position) -> Result<Self> {
+    pub async fn new(buffer: &B, position: &Position) -> Result<Self> {
         let id = buffer.write().await.create_mark(position).await?;
 
         Ok(Self {

@@ -307,7 +307,9 @@ impl NvimBufferHandle {
     }
 }
 
-impl BufferHandle<NvimBuffer> for NvimBufferHandle {
+impl BufferHandle for NvimBufferHandle {
+    type Buffer = NvimBuffer;
+
     fn read(
         &self,
     ) -> impl Future<Output = impl std::ops::Deref<Target = NvimBuffer> + Sync + Send + 'static>

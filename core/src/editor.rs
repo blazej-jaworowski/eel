@@ -6,7 +6,7 @@ use crate::{
 #[async_trait::async_trait]
 pub trait Editor: Sized + Sync + Send {
     type Buffer: Buffer;
-    type BufferHandle: BufferHandle<Self::Buffer>;
+    type BufferHandle: BufferHandle<Buffer = Self::Buffer>;
 
     async fn current_buffer(&self) -> Result<Self::BufferHandle>;
     async fn new_buffer(&self) -> Result<Self::BufferHandle>;

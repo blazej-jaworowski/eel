@@ -87,10 +87,10 @@ where
     buffer
 }
 
-pub async fn set_buffer_state<B, BH>(buffer: &BH, state: &str)
+pub async fn set_buffer_state<B>(buffer: &B, state: &str)
 where
-    B: CursorBuffer,
-    BH: BufferHandle<B>,
+    B: BufferHandle,
+    B::Buffer: CursorBuffer,
 {
     let (content, position) = parse_buffer_state(state);
 

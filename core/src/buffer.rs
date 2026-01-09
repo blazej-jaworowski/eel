@@ -133,14 +133,20 @@ pub trait Buffer: Send + Sync {
     }
 }
 
-pub trait BufferHandle<B: Buffer>: Clone + Send + Sync {
+pub trait BufferHandle: Clone + Send + Sync {
+    type Buffer: Buffer;
+
     fn read(
         &self,
-    ) -> impl Future<Output = impl std::ops::Deref<Target = B> + Sync + Send + 'static> + Send + 'static;
+    ) -> impl Future<Output = impl std::ops::Deref<Target = Self::Buffer> + Sync + Send + 'static>
+    + Send
+    + 'static;
 
     fn write(
         &self,
-    ) -> impl Future<Output = impl std::ops::DerefMut<Target = B> + Send + 'static> + Send + 'static;
+    ) -> impl Future<Output = impl std::ops::DerefMut<Target = Self::Buffer> + Send + 'static>
+    + Send
+    + 'static;
 }
 
 #[cfg(feature = "tests")]
