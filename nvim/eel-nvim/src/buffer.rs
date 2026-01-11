@@ -14,7 +14,7 @@ use crate::{
 
 use eel::{
     Position, Result,
-    buffer::{Buffer, BufferHandle},
+    buffer::{Buffer, BufferHandle, BufferReadLock, BufferWriteLock},
     cursor::CursorBuffer,
     marks::{MarkId, MarksBuffer},
 };
@@ -310,11 +310,7 @@ impl NvimBufferHandle {
 impl BufferHandle for NvimBufferHandle {
     type Buffer = NvimBuffer;
 
-    fn read(
-        &self,
-    ) -> impl Future<Output = impl std::ops::Deref<Target = NvimBuffer> + Sync + Send + 'static>
-    + Send
-    + 'static {
+    fn read(&self) -> impl Future<Output = impl BufferReadLock<Self::Buffer>> + Send + 'static {
         let lock = self.buffer_lock.clone();
         let id = self.id;
 
@@ -329,11 +325,7 @@ impl BufferHandle for NvimBufferHandle {
         }
     }
 
-    fn write(
-        &self,
-    ) -> impl Future<Output = impl std::ops::DerefMut<Target = NvimBuffer> + Send + 'static>
-    + Send
-    + 'static {
+    fn write(&self) -> impl Future<Output = impl BufferWriteLock<Self::Buffer>> + Send + 'static {
         let lock = self.buffer_lock.clone();
         let id = self.id;
 
