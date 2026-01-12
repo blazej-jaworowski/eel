@@ -150,7 +150,7 @@ where
 {
 }
 
-pub trait BufferHandle: Clone + Send + Sync {
+pub trait BufferHandle: Clone + Send + Sync + 'static {
     type Buffer: Buffer;
 
     fn read(&self) -> impl Future<Output = impl BufferReadLock<Self::Buffer>> + Send + 'static;
