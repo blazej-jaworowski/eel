@@ -26,7 +26,7 @@ pub trait MarksBuffer: Buffer {
 }
 
 #[derive(Debug)]
-pub struct MarkHandle<B>
+pub struct Mark<B>
 where
     B: BufferHandle,
     B::Buffer: MarksBuffer,
@@ -36,7 +36,7 @@ where
     ref_count: Arc<AtomicU64>,
 }
 
-impl<B> Clone for MarkHandle<B>
+impl<B> Clone for Mark<B>
 where
     B: BufferHandle,
     B::Buffer: MarksBuffer,
@@ -54,7 +54,7 @@ where
     }
 }
 
-impl<B> Drop for MarkHandle<B>
+impl<B> Drop for Mark<B>
 where
     B: BufferHandle,
     B::Buffer: MarksBuffer,
@@ -81,7 +81,7 @@ where
     }
 }
 
-impl<B> MarkHandle<B>
+impl<B> Mark<B>
 where
     B: BufferHandle,
     B::Buffer: MarksBuffer,
@@ -143,14 +143,14 @@ pub mod tests {
 
     use super::*;
 
-    pub async fn _test_buffer_marks_basic<E>(editor: E)
+    pub async fn _test_marks_basic<E>(editor: E)
     where
         E: Editor,
         E::Buffer: MarksBuffer,
     {
         let buffer = new_buffer_with_content(&editor, "test\ntest2").await;
 
-        let mark = MarkHandle::new(&buffer, &Position::new(0, 1))
+        let mark = Mark::new(&buffer, &Position::new(0, 1))
             .await
             .expect("Failed to create mark");
 
@@ -167,14 +167,14 @@ pub mod tests {
         assert_eq!(position, Position::new(1, 0));
     }
 
-    pub async fn _test_buffer_marks_set_text<E>(editor: E)
+    pub async fn _test_marks_set_text<E>(editor: E)
     where
         E: Editor,
         E::Buffer: MarksBuffer,
     {
         let buffer = new_buffer_with_content(&editor, "First line").await;
 
-        let mark = MarkHandle::new(&buffer, &Position::new(0, 6))
+        let mark = Mark::new(&buffer, &Position::new(0, 6))
             .await
             .expect("Failed to create mark");
 
@@ -213,8 +213,8 @@ pub mod tests {
         };
 
         ($test_tag:path) => {
-            $crate::eel_marks_tests!(@test test_buffer_marks_basic, $test_tag);
-            $crate::eel_marks_tests!(@test test_buffer_marks_set_text, $test_tag);
+            $crate::eel_marks_tests!(@test test_marks_basic, $test_tag);
+            $crate::eel_marks_tests!(@test test_marks_set_text, $test_tag);
         };
     }
 }
