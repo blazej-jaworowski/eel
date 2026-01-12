@@ -1,15 +1,16 @@
-use async_trait::async_trait;
-
-use crate::{
-    Position, Result,
-    buffer::{Buffer, BufferHandle, BufferReadLock, BufferWriteLock},
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
 };
 
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("Mark destroyed")]
-    Destroyed,
-}
+use async_trait::async_trait;
+use tracing::debug;
+
+use crate::{
+    Position, Result, async_runtime,
+    buffer::{Buffer, BufferHandle, BufferReadLock, BufferWriteLock},
+    tracing::ResultExt,
+};
 
 pub trait MarkId: std::fmt::Debug + Clone + Copy + Sync + Send {}
 
@@ -32,17 +33,50 @@ where
 {
     id: <B::Buffer as MarksBuffer>::MarkId,
     buffer: B,
+    ref_count: Arc<AtomicU64>,
 }
 
-impl<B: Clone> Clone for MarkHandle<B>
+impl<B> Clone for MarkHandle<B>
 where
     B: BufferHandle,
     B::Buffer: MarksBuffer,
 {
     fn clone(&self) -> Self {
+        let prev_count = self.ref_count.fetch_add(1, Ordering::Relaxed);
+
+        debug!({ ref_count = prev_count }, "Cloning mark ({:?})", self.id);
+
         Self {
             id: self.id,
             buffer: self.buffer.clone(),
+            ref_count: self.ref_count.clone(),
+        }
+    }
+}
+
+impl<B> Drop for MarkHandle<B>
+where
+    B: BufferHandle,
+    B::Buffer: MarksBuffer,
+{
+    fn drop(&mut self) {
+        let prev_count = self.ref_count.fetch_sub(1, Ordering::Relaxed);
+
+        debug!({ ref_count = prev_count }, "Dropping mark ({:?})", self.id);
+
+        if prev_count == 1 {
+            debug!("Destroying mark ({:?})", self.id);
+
+            let buffer = self.buffer.clone();
+            let id = self.id;
+            async_runtime::spawn(async move {
+                _ = buffer
+                    .write()
+                    .await
+                    .destroy_mark(id)
+                    .await
+                    .log_err_msg("Failed to destroy mark");
+            });
         }
     }
 }
@@ -67,6 +101,7 @@ where
         Ok(Self {
             id,
             buffer: buffer.clone(),
+            ref_count: Arc::new(AtomicU64::new(1)),
         })
     }
 
@@ -93,18 +128,6 @@ where
         buffer_lock: &mut impl BufferWriteLock<B::Buffer>,
     ) -> Result<()> {
         buffer_lock.set_mark_position(self.id, position).await
-    }
-
-    pub async fn destroy(self) -> Result<()> {
-        let mut lock = self.buffer.write().await;
-        self.destroy_locked(&mut lock).await
-    }
-
-    pub async fn destroy_locked(
-        self,
-        buffer_lock: &mut impl BufferWriteLock<B::Buffer>,
-    ) -> Result<()> {
-        buffer_lock.destroy_mark(self.id).await
     }
 
     pub fn get_buffer(&self) -> &B {
@@ -143,17 +166,6 @@ pub mod tests {
         let position = mark.get_position().await.expect("Failed to get position");
 
         assert_eq!(position, Position::new(1, 0));
-
-        {
-            let mark = mark.clone();
-            mark.destroy().await.expect("Failed to destroy mark");
-        }
-
-        // TODO: Verify specific error
-        assert!(
-            mark.get_position().await.is_err(),
-            "Operation on a destroyed mark should error"
-        );
     }
 
     pub async fn _test_buffer_marks_set_text<E>(editor: E)
@@ -183,7 +195,8 @@ pub mod tests {
         assert_eq!(position, Position::new(1, 7));
     }
 
-    // TODO: More tests. This has many edge cases that need to have defined behaviour.
+    // TODO: More tests. This has many edge cases that need to have defined behaviour. Also test
+    //       reference counting and cleanup.
 
     #[macro_export]
     macro_rules! eel_marks_buffer_tests {

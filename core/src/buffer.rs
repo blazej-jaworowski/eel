@@ -13,9 +13,6 @@ pub enum Error {
     #[error("Col out of bounds: {col} (max {max})")]
     ColOutOfBounds { col: usize, max: usize },
 
-    #[error("Mark error: {0}")]
-    Mark(#[from] crate::marks::Error),
-
     #[error("Error: {0}")]
     Custom(Box<dyn std::error::Error + Sync + Send>),
 }
