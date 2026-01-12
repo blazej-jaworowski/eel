@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use crate::{
     Position, Result,
-    buffer::{Buffer, BufferHandle},
+    buffer::{Buffer, BufferHandle, BufferReadLock, BufferWriteLock},
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -53,7 +53,16 @@ where
     B::Buffer: MarksBuffer,
 {
     pub async fn new(buffer: &B, position: &Position) -> Result<Self> {
-        let id = buffer.write().await.create_mark(position).await?;
+        let mut lock = buffer.write().await;
+        Self::new_locked(buffer, position, &mut lock).await
+    }
+
+    pub async fn new_locked(
+        buffer: &B,
+        position: &Position,
+        buffer_lock: &mut impl BufferWriteLock<B::Buffer>,
+    ) -> Result<Self> {
+        let id = buffer_lock.create_mark(position).await?;
 
         Ok(Self {
             id,
@@ -61,20 +70,45 @@ where
         })
     }
 
-    pub async fn destroy(self) -> Result<()> {
-        self.buffer.write().await.destroy_mark(self.id).await
+    pub async fn get_position(&self) -> Result<Position> {
+        let lock = self.buffer.read().await;
+        self.get_position_locked(&lock).await
     }
 
-    pub async fn get_position(&self) -> Result<Position> {
-        self.buffer.read().await.get_mark_position(self.id).await
+    pub async fn get_position_locked(
+        &self,
+        buffer_lock: &impl BufferReadLock<B::Buffer>,
+    ) -> Result<Position> {
+        buffer_lock.get_mark_position(self.id).await
     }
 
     pub async fn set_position(&self, position: &Position) -> Result<()> {
-        self.buffer
-            .write()
-            .await
-            .set_mark_position(self.id, position)
-            .await
+        let mut lock = self.buffer.write().await;
+        self.set_position_locked(position, &mut lock).await
+    }
+
+    pub async fn set_position_locked(
+        &self,
+        position: &Position,
+        buffer_lock: &mut impl BufferWriteLock<B::Buffer>,
+    ) -> Result<()> {
+        buffer_lock.set_mark_position(self.id, position).await
+    }
+
+    pub async fn destroy(self) -> Result<()> {
+        let mut lock = self.buffer.write().await;
+        self.destroy_locked(&mut lock).await
+    }
+
+    pub async fn destroy_locked(
+        self,
+        buffer_lock: &mut impl BufferWriteLock<B::Buffer>,
+    ) -> Result<()> {
+        buffer_lock.destroy_mark(self.id).await
+    }
+
+    pub fn get_buffer(&self) -> &B {
+        &self.buffer
     }
 }
 
