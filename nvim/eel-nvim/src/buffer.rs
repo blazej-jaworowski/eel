@@ -16,7 +16,7 @@ use eel::{
     Position, Result,
     buffer::{Buffer, BufferHandle, BufferReadLock, BufferWriteLock},
     cursor::CursorBuffer,
-    marks::{MarkId, MarksBuffer},
+    marks::{Gravity, MarkId, MarksBuffer},
 };
 
 /// Represents a coordinate location within a Neovim buffer.
@@ -256,20 +256,27 @@ impl MarksBuffer for NvimBuffer {
 
         let mut buf = self.inner_buf();
 
-        Ok(buf
-            .del_extmark(get_eel_namespace(), id.into())
-            .into_nvim()?)
+        self.dispatcher
+            .dispatch(move || buf.del_extmark(get_eel_namespace(), id.into()))
+            .await?
+            .into_nvim()?;
+
+        Ok(())
     }
 
     async fn get_mark_position(&self, id: Self::MarkId) -> Result<Position> {
         let buf = self.inner_buf();
 
-        let (row, col, _) = buf
-            .get_extmark_by_id(
-                get_eel_namespace(),
-                id.into(),
-                &GetExtmarkByIdOpts::default(),
-            )
+        let (row, col, _) = self
+            .dispatcher
+            .dispatch(move || {
+                buf.get_extmark_by_id(
+                    get_eel_namespace(),
+                    id.into(),
+                    &GetExtmarkByIdOpts::default(),
+                )
+            })
+            .await?
             .into_nvim()?;
 
         Ok(Position::new(row, col))
@@ -278,13 +285,48 @@ impl MarksBuffer for NvimBuffer {
         let native_pos: NativePosition = pos.clone().into();
         let mut buf = self.inner_buf();
 
-        buf.set_extmark(
-            get_eel_namespace(),
-            native_pos.row - 1,
-            native_pos.col - 1,
-            &SetExtmarkOpts::builder().id(id.into()).build(),
-        )
-        .into_nvim()?;
+        self.dispatcher
+            .dispatch(move || {
+                buf.set_extmark(
+                    get_eel_namespace(),
+                    native_pos.row - 1,
+                    native_pos.col - 1,
+                    &SetExtmarkOpts::builder().id(id.into()).build(),
+                )
+            })
+            .await?
+            .into_nvim()?;
+
+        Ok(())
+    }
+
+    async fn set_mark_gravity(&mut self, id: Self::MarkId, gravity: Gravity) -> Result<()> {
+        let mut buf = self.inner_buf();
+
+        let pos = self.get_mark_position(id).await?;
+
+        self.dispatcher
+            .dispatch(move || {
+                // TODO: In my opinion you shouldn't have to delete an extmark and create a new one to change options,
+                //       but it doesn't work otherwise. Should investigate.
+                buf.del_extmark(get_eel_namespace(), id.into())?;
+
+                buf.set_extmark(
+                    get_eel_namespace(),
+                    pos.row,
+                    pos.col,
+                    &SetExtmarkOpts::builder()
+                        .id(id.into())
+                        .right_gravity(match gravity {
+                            Gravity::Left => false,
+                            Gravity::Right => true,
+                        })
+                        .build(),
+                )?;
+
+                Ok::<_, NvimError>(())
+            })
+            .await??;
 
         Ok(())
     }

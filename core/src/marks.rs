@@ -14,6 +14,12 @@ use crate::{
 
 pub trait MarkId: std::fmt::Debug + Clone + Copy + Sync + Send {}
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum Gravity {
+    Left,
+    Right,
+}
+
 #[async_trait]
 pub trait MarksBuffer: Buffer {
     type MarkId: MarkId;
@@ -23,6 +29,8 @@ pub trait MarksBuffer: Buffer {
 
     async fn get_mark_position(&self, id: Self::MarkId) -> Result<Position>;
     async fn set_mark_position(&mut self, id: Self::MarkId, pos: &Position) -> Result<()>;
+
+    async fn set_mark_gravity(&mut self, id: Self::MarkId, gravity: Gravity) -> Result<()>;
 }
 
 #[derive(Debug)]
@@ -132,6 +140,18 @@ where
         buffer_lock.set_mark_position(self.id, position).await
     }
 
+    pub async fn set_gravity(&self, gravity: Gravity) -> Result<()> {
+        let mut lock = self.buffer.write().await;
+        self.set_gravity_locked(gravity, &mut lock).await
+    }
+    pub async fn set_gravity_locked(
+        &self,
+        gravity: Gravity,
+        buffer_lock: &mut impl BufferWriteLock<B::Buffer>,
+    ) -> Result<()> {
+        buffer_lock.set_mark_gravity(self.id, gravity).await
+    }
+
     pub fn get_buffer(&self) -> &B {
         &self.buffer
     }
@@ -194,8 +214,105 @@ pub mod tests {
         assert_eq!(position, Position::new(1, 7));
     }
 
-    // TODO: More tests. This has many edge cases that need to have defined behaviour. Also test
-    //       reference counting and cleanup.
+    pub async fn _test_marks_gravity_right<E>(editor: E)
+    where
+        E: Editor,
+        E::Buffer: MarksBuffer,
+    {
+        let buffer = new_buffer_with_content(&editor, "First line").await;
+
+        let mark = Mark::new(&buffer, &Position::new(0, 5))
+            .await
+            .expect("Failed to create mark");
+
+        assert_eq!(
+            mark.get_position()
+                .await
+                .expect("Failed to get mark position"),
+            Position::new(0, 5),
+        );
+
+        buffer
+            .write()
+            .await
+            .set_text(&Position::new(0, 1), &Position::new(0, 9), "ir")
+            .await
+            .expect("Failed to set text");
+
+        assert_eq!(
+            mark.get_position()
+                .await
+                .expect("Failed to get mark position"),
+            Position::new(0, 3),
+        );
+
+        buffer
+            .write()
+            .await
+            .set_text(&Position::new(0, 3), &Position::new(0, 3), "...")
+            .await
+            .expect("Failed to set text");
+
+        assert_eq!(
+            mark.get_position()
+                .await
+                .expect("Failed to get mark position"),
+            Position::new(0, 6),
+        );
+    }
+
+    pub async fn _test_marks_gravity_left<E>(editor: E)
+    where
+        E: Editor,
+        E::Buffer: MarksBuffer,
+    {
+        let buffer = new_buffer_with_content(&editor, "First line").await;
+
+        let mark = Mark::new(&buffer, &Position::new(0, 5))
+            .await
+            .expect("Failed to create mark");
+
+        mark.set_gravity(Gravity::Left)
+            .await
+            .expect("Failed to set gravity");
+
+        assert_eq!(
+            mark.get_position()
+                .await
+                .expect("Failed to get mark position"),
+            Position::new(0, 5),
+        );
+
+        buffer
+            .write()
+            .await
+            .set_text(&Position::new(0, 1), &Position::new(0, 9), "ir")
+            .await
+            .expect("Failed to set text");
+
+        assert_eq!(
+            mark.get_position()
+                .await
+                .expect("Failed to get mark position"),
+            Position::new(0, 1),
+        );
+
+        buffer
+            .write()
+            .await
+            .set_text(&Position::new(0, 1), &Position::new(0, 3), "...")
+            .await
+            .expect("Failed to set text");
+
+        assert_eq!(
+            mark.get_position()
+                .await
+                .expect("Failed to get mark position"),
+            Position::new(0, 1),
+        );
+    }
+
+    // TODO: Test reference counting and cleanup.
 
     #[macro_export]
     macro_rules! eel_marks_tests {
@@ -215,6 +332,8 @@ pub mod tests {
         ($test_tag:path) => {
             $crate::eel_marks_tests!(@test test_marks_basic, $test_tag);
             $crate::eel_marks_tests!(@test test_marks_set_text, $test_tag);
+            $crate::eel_marks_tests!(@test test_marks_gravity_right, $test_tag);
+            $crate::eel_marks_tests!(@test test_marks_gravity_left, $test_tag);
         };
     }
 }
