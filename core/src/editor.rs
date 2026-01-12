@@ -4,7 +4,7 @@ use crate::{
 };
 
 #[async_trait::async_trait]
-pub trait Editor: Sized + Sync + Send {
+pub trait Editor: Sized + Sync + Send + 'static {
     type Buffer: Buffer;
     type BufferHandle: BufferHandle<Buffer = Self::Buffer>;
 

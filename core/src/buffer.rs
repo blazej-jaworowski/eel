@@ -134,7 +134,7 @@ pub trait Buffer: Send + Sync {
 }
 
 pub trait BufferReadLock<B: Buffer>: std::ops::Deref<Target = B> + Sync + Send + 'static {}
-pub trait BufferWriteLock<B: Buffer>: std::ops::DerefMut<Target = B> + Send + 'static {}
+pub trait BufferWriteLock<B: Buffer>: std::ops::DerefMut<Target = B> + BufferReadLock<B> {}
 
 impl<B, D> BufferReadLock<B> for D
 where
@@ -146,7 +146,7 @@ where
 impl<B, D> BufferWriteLock<B> for D
 where
     B: Buffer,
-    D: std::ops::DerefMut<Target = B> + Send + 'static,
+    D: std::ops::DerefMut<Target = B> + Sync + Send + 'static,
 {
 }
 
