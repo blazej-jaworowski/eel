@@ -592,13 +592,13 @@ Third line! :)"#
         };
 
         ($test_tag:path) => {
-            eel_buffer_tests!(@test test_buffer_pos, $test_tag);
-            eel_buffer_tests!(@test test_buffer_set_text, $test_tag);
-            eel_buffer_tests!(@test test_buffer_append, $test_tag);
-            eel_buffer_tests!(@test test_buffer_prepend, $test_tag);
-            eel_buffer_tests!(@test test_buffer_pos_append, $test_tag);
-            eel_buffer_tests!(@test test_buffer_append_many, $test_tag);
-            eel_buffer_tests!(@test test_buffer_set_text_parallel, $test_tag);
+            $crate::eel_buffer_tests!(@test test_buffer_pos, $test_tag);
+            $crate::eel_buffer_tests!(@test test_buffer_set_text, $test_tag);
+            $crate::eel_buffer_tests!(@test test_buffer_append, $test_tag);
+            $crate::eel_buffer_tests!(@test test_buffer_prepend, $test_tag);
+            $crate::eel_buffer_tests!(@test test_buffer_pos_append, $test_tag);
+            $crate::eel_buffer_tests!(@test test_buffer_append_many, $test_tag);
+            $crate::eel_buffer_tests!(@test test_buffer_set_text_parallel, $test_tag);
         };
     }
 }

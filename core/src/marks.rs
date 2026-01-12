@@ -96,6 +96,8 @@ where
         position: &Position,
         buffer_lock: &mut impl BufferWriteLock<B::Buffer>,
     ) -> Result<Self> {
+        // TODO: We should find a way to verify if we have a lock to the right buffer.
+        //       The same applies to below methods.
         let id = buffer_lock.create_mark(position).await?;
 
         Ok(Self {
@@ -199,7 +201,7 @@ pub mod tests {
     //       reference counting and cleanup.
 
     #[macro_export]
-    macro_rules! eel_marks_buffer_tests {
+    macro_rules! eel_marks_tests {
         (@test $test_name:ident, $test_tag:path) => {
             $crate::marks::tests::paste! {
                 #[$test_tag]
@@ -214,8 +216,8 @@ pub mod tests {
         };
 
         ($test_tag:path) => {
-            eel_marks_buffer_tests!(@test test_buffer_marks_basic, $test_tag);
-            eel_marks_buffer_tests!(@test test_buffer_marks_set_text, $test_tag);
+            $crate::eel_marks_tests!(@test test_buffer_marks_basic, $test_tag);
+            $crate::eel_marks_tests!(@test test_buffer_marks_set_text, $test_tag);
         };
     }
 }

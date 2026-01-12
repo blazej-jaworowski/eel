@@ -242,10 +242,10 @@ Third line!"#
         };
 
         ($test_tag:path) => {
-            eel_cursor_buffer_tests!(@test test_buffer_cursor, $test_tag);
-            eel_cursor_buffer_tests!(@test test_buffer_cursor_append, $test_tag);
-            eel_cursor_buffer_tests!(@test test_buffer_type_text, $test_tag);
-            eel_cursor_buffer_tests!(@test test_buffer_type_text_empty, $test_tag);
+            $crate::eel_cursor_buffer_tests!(@test test_buffer_cursor, $test_tag);
+            $crate::eel_cursor_buffer_tests!(@test test_buffer_cursor_append, $test_tag);
+            $crate::eel_cursor_buffer_tests!(@test test_buffer_type_text, $test_tag);
+            $crate::eel_cursor_buffer_tests!(@test test_buffer_type_text_empty, $test_tag);
         };
     }
 }
