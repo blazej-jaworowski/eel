@@ -159,9 +159,6 @@ pub trait BufferHandle: Eq + Clone + Send + Sync + 'static {
 pub mod tests {
     use super::*;
 
-    #[doc(hidden)]
-    pub use paste::paste;
-
     use crate::{
         assert_buffer_content, assert_buffer_error, async_runtime, editor::Editor,
         test_utils::new_buffer_with_content,
@@ -583,7 +580,7 @@ Third line! :)"#
     #[macro_export]
     macro_rules! eel_buffer_tests {
         (@test $test_name:ident, $test_tag:path) => {
-            $crate::buffer::tests::paste! {
+            $crate::test_utils::paste! {
                 #[$test_tag]
                 async fn $test_name(editor: impl $crate::Editor + 'static) {
                     $crate::buffer::tests::[< _ $test_name >](editor).await;

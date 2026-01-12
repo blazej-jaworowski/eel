@@ -143,9 +143,6 @@ pub mod tests {
 
     use super::*;
 
-    #[doc(hidden)]
-    pub use paste::paste;
-
     pub async fn _test_buffer_marks_basic<E>(editor: E)
     where
         E: Editor,
@@ -203,7 +200,7 @@ pub mod tests {
     #[macro_export]
     macro_rules! eel_marks_tests {
         (@test $test_name:ident, $test_tag:path) => {
-            $crate::marks::tests::paste! {
+            $crate::test_utils::paste! {
                 #[$test_tag]
                 async fn $test_name<E>(editor: E)
                 where

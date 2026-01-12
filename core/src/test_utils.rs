@@ -7,6 +7,9 @@ use crate::{
     editor::Editor,
 };
 
+#[doc(hidden)]
+pub use paste::paste;
+
 #[macro_export]
 macro_rules! assert_buffer_content {
     ($buffer:expr, $content:expr) => {{
