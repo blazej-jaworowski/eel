@@ -291,10 +291,10 @@ impl MarksBuffer for NvimBuffer {
 }
 
 #[derive(Clone, derivative::Derivative)]
-#[derivative(Debug)]
+#[derivative(Debug, Eq, PartialEq)]
 pub struct NvimBufferHandle {
     id: i32,
-    #[derivative(Debug = "ignore")]
+    #[derivative(Debug = "ignore", PartialEq = "ignore")]
     buffer_lock: Arc<RwLock<NvimBuffer>>,
 }
 
