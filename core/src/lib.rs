@@ -13,6 +13,7 @@ pub use position::Position;
 pub mod buffer;
 pub mod cursor;
 pub mod marks;
+pub mod region;
 
 #[cfg(feature = "tests")]
 pub mod test_utils;
@@ -24,5 +25,6 @@ macro_rules! eel_full_tests {
         $crate::eel_buffer_tests!($test_tag);
         $crate::eel_cursor_buffer_tests!($test_tag);
         $crate::eel_marks_tests!($test_tag);
+        $crate::eel_region_tests!($test_tag);
     };
 }
