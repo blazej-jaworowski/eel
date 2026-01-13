@@ -1,21 +1,23 @@
 use std::sync::{Arc, mpsc};
 
+use eel::Editor;
 use tracing::debug;
 
 use crate::{editor::NvimEditor, lua::lua_get_global_path};
 
-pub fn run_nvim_async_test<F, T, R>(test: F) -> R
+pub fn run_nvim_async_test<E, EF, F, T, R>(test: T, editor_factory: EF) -> R
 where
+    E: Editor,
+    EF: Fn() -> E,
     R: Send + 'static,
-    F: FnOnce(NvimEditor) -> T,
-    T: Future<Output = R> + Send + 'static,
+    T: FnOnce(E) -> F,
+    F: Future<Output = R> + Send + 'static,
 {
     eel::tracing::init_tracing([eel::tracing::file_log_layer("/tmp/eel")]);
 
     eel::async_runtime::init_runtime().expect("Failed to initialize async runtime");
-    let editor = NvimEditor::new_on_current().expect("Failed to initialize NvimEditor");
 
-    let test = test(editor);
+    let test = test(editor_factory());
     let (send, recv) = mpsc::channel();
 
     let test_handle = {
@@ -53,4 +55,8 @@ where
     assert!(wait_result, "Test timed out");
 
     recv.try_recv().expect("Failed to get test result")
+}
+
+pub fn nvim_editor_factory() -> NvimEditor {
+    NvimEditor::new_on_current().expect("Failed to initialize editor")
 }

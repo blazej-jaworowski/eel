@@ -169,7 +169,7 @@ Fourth line"#,
         (buffer, region)
     }
 
-    pub async fn _test_region_line_count<E>(editor: E)
+    pub async fn test_region_line_count<E>(editor: E)
     where
         E: Editor,
         E::Buffer: MarksBuffer,
@@ -182,7 +182,7 @@ Fourth line"#,
         );
     }
 
-    pub async fn _test_region_get_lines<E>(editor: E)
+    pub async fn test_region_get_lines<E>(editor: E)
     where
         E: Editor,
         E::Buffer: MarksBuffer,
@@ -214,7 +214,7 @@ Fourth line"#,
         );
     }
 
-    pub async fn _test_region_set_text<E>(editor: E)
+    pub async fn test_region_set_text<E>(editor: E)
     where
         E: Editor,
         E::Buffer: MarksBuffer,
@@ -299,7 +299,7 @@ Fourth line"#
         );
     }
 
-    pub async fn _test_region_empty<E>(editor: E)
+    pub async fn test_region_empty<E>(editor: E)
     where
         E: Editor,
         E::Buffer: MarksBuffer,
@@ -359,24 +359,25 @@ Fourth line"#
 
     #[macro_export]
     macro_rules! eel_region_tests {
-        (@test $test_name:ident, $test_tag:meta) => {
-            $crate::test_utils::paste! {
-                #[$test_tag]
-                async fn $test_name<E>(editor: E)
-                where
-                    E: $crate::Editor,
-                    E::Buffer: $crate::marks::MarksBuffer,
-                {
-                    $crate::region::tests::[< _ $test_name >](editor).await;
-                }
-            }
+        ($test_tag:path, $editor_factory:expr, $prefix:literal) => {
+            $crate::eel_tests!(
+                test_tag: $test_tag,
+                editor_factory: $editor_factory,
+                editor_bounds: {},
+                buffer_bounds: { $crate::marks::MarksBuffer },
+                module_path: $crate::region::tests,
+                prefix: $prefix,
+                tests: [
+                    test_region_line_count,
+                    test_region_get_lines,
+                    test_region_set_text,
+                    test_region_empty,
+                ],
+            );
         };
 
-        ($test_tag:meta) => {
-            $crate::eel_region_tests!(@test test_region_line_count, $test_tag);
-            $crate::eel_region_tests!(@test test_region_get_lines, $test_tag);
-            $crate::eel_region_tests!(@test test_region_set_text, $test_tag);
-            $crate::eel_region_tests!(@test test_region_empty, $test_tag);
+        ($test_tag:path, $editor_factory:expr) => {
+            $crate::eel_region_tests!($test_tag, $editor_factory, "");
         };
     }
 }

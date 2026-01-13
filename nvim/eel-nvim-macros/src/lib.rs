@@ -1,27 +1,42 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;
-use syn::{Ident, ItemFn, parse_macro_input};
+use syn::{Expr, Ident, ItemFn, parse_macro_input, spanned::Spanned};
+
+#[derive(deluxe::ParseMetaItem)]
+#[deluxe(attributes(nvim_test))]
+struct NvimTestArgs {
+    editor_factory: Expr,
+}
 
 #[proc_macro_attribute]
-pub fn nvim_test(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn nvim_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut function = parse_macro_input!(item as ItemFn);
 
-    let mut orig_ident = function.sig.ident;
-    let new_ident = Ident::new(&format!("_{orig_ident}"), orig_ident.span());
+    let editor_factory = {
+        let args: NvimTestArgs = match deluxe::parse(attr) {
+            Ok(args) => args,
+            Err(e) => return e.into_compile_error().into(),
+        };
+        args.editor_factory
+    };
 
+    // Identifier of nvim_oxi test function
+    let test_ident = Ident::new(&function.sig.ident.to_string(), Span::call_site());
+
+    // Modifying identifier of the original function to avoid duplicate
+    let new_ident = Ident::new(&format!("_{}", function.sig.ident), function.sig.span());
     function.sig.ident = new_ident.clone();
 
     let return_type = function.sig.output.clone();
-
-    orig_ident.set_span(Span::call_site());
 
     quote! {
         #function
 
         #[::nvim_oxi::test]
-        fn #orig_ident() #return_type {
-            run_nvim_async_test(|editor| #new_ident(editor))
+        fn #test_ident() #return_type {
+            let editor_factory = #editor_factory;
+            crate::test_utils::run_nvim_async_test(#new_ident, editor_factory)
         }
     }
     .into()

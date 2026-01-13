@@ -50,7 +50,7 @@ pub mod tests {
 
     use super::*;
 
-    pub async fn _test_buffer_cursor<E>(editor: E)
+    pub async fn test_cursor<E>(editor: E)
     where
         E: Editor,
         E::Buffer: CursorBuffer,
@@ -111,7 +111,7 @@ Second line"#,
         );
     }
 
-    pub async fn _test_buffer_cursor_append<E>(editor: E)
+    pub async fn test_cursor_append<E>(editor: E)
     where
         E: Editor,
         E::Buffer: CursorBuffer,
@@ -163,7 +163,7 @@ Third (3rd) test line
         );
     }
 
-    pub async fn _test_buffer_type_text<E>(editor: E)
+    pub async fn test_cursor_type_text<E>(editor: E)
     where
         E: Editor,
         E::Buffer: CursorBuffer,
@@ -206,7 +206,7 @@ Third line!"#
         );
     }
 
-    pub async fn _test_buffer_type_text_empty<E>(editor: E)
+    pub async fn test_cursor_type_text_empty<E>(editor: E)
     where
         E: Editor,
         E::Buffer: CursorBuffer,
@@ -225,24 +225,25 @@ Third line!"#
 
     #[macro_export]
     macro_rules! eel_cursor_tests {
-        (@test $test_name:ident, $test_tag:meta) => {
-            $crate::test_utils::paste! {
-                #[$test_tag]
-                async fn $test_name<E>(editor: E)
-                where
-                    E: $crate::Editor + 'static,
-                    E::Buffer: $crate::cursor::CursorBuffer,
-                {
-                    $crate::cursor::tests::[< _ $test_name >](editor).await;
-                }
-            }
+        ($test_tag:path, $editor_factory:expr, $prefix:literal) => {
+            $crate::eel_tests!(
+                test_tag: $test_tag,
+                editor_factory: $editor_factory,
+                editor_bounds: {},
+                buffer_bounds: { $crate::cursor::CursorBuffer },
+                module_path: $crate::cursor::tests,
+                prefix: $prefix,
+                tests: [
+                    test_cursor,
+                    test_cursor_append,
+                    test_cursor_type_text,
+                    test_cursor_type_text_empty
+                ],
+            );
         };
 
-        ($test_tag:meta) => {
-            $crate::eel_cursor_tests!(@test test_buffer_cursor, $test_tag);
-            $crate::eel_cursor_tests!(@test test_buffer_cursor_append, $test_tag);
-            $crate::eel_cursor_tests!(@test test_buffer_type_text, $test_tag);
-            $crate::eel_cursor_tests!(@test test_buffer_type_text_empty, $test_tag);
+        ($test_tag:path, $editor_factory:expr) => {
+            $crate::eel_cursor_tests!($test_tag, $editor_factory, "");
         };
     }
 }

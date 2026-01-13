@@ -148,3 +148,49 @@ pub fn parse_buffer_state(state: &str) -> (String, Position) {
 
     (content, cursor_pos)
 }
+
+#[macro_export]
+macro_rules! eel_tests {
+    (@test
+        test_tag: $test_tag:path,
+        editor_factory: $editor_factory:expr,
+        editor_bounds: { $( $editor_bounds:tt )* },
+        buffer_bounds: { $( $buffer_bounds:tt )* },
+        module_path: $module_path:path,
+        prefix: $prefix:literal,
+        test: $test_name:ident$(,)?
+    ) => {
+        $crate::test_utils::paste! {
+            #[$test_tag(editor_factory = $editor_factory)]
+            async fn [< $prefix $test_name >]<E>(editor: E)
+            where
+                E: $crate::Editor + $( $editor_bounds )*,
+                E::Buffer: $crate::buffer::Buffer + $( $buffer_bounds )*
+            {
+                $module_path::$test_name(editor).await;
+            }
+        }
+    };
+
+    (
+        test_tag: $test_tag:path,
+        editor_factory: $editor_factory:expr,
+        editor_bounds: $editor_bounds:tt,
+        buffer_bounds: $buffer_bounds:tt,
+        module_path: $module_path:path,
+        prefix: $prefix:literal,
+        tests: [ $( $test_name:ident ),* $(,)? ],
+    ) => {
+        $(
+            $crate::eel_tests!(@test
+                test_tag: $test_tag,
+                editor_factory: $editor_factory,
+                editor_bounds: $editor_bounds,
+                buffer_bounds: $buffer_bounds,
+                module_path: $module_path,
+                prefix: $prefix,
+                test: $test_name,
+            );
+        )*
+    };
+}

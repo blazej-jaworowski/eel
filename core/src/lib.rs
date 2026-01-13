@@ -21,10 +21,10 @@ pub mod test_utils;
 #[cfg(feature = "tests")]
 #[macro_export]
 macro_rules! eel_full_tests {
-    ($test_tag:meta) => {
-        $crate::eel_buffer_tests!($test_tag);
-        $crate::eel_cursor_tests!($test_tag);
-        $crate::eel_marks_tests!($test_tag);
-        $crate::eel_region_tests!($test_tag);
+    ($test_tag:path, $editor_factory:expr) => {
+        $crate::eel_buffer_tests!($test_tag, $editor_factory);
+        $crate::eel_cursor_tests!($test_tag, $editor_factory);
+        $crate::eel_marks_tests!($test_tag, $editor_factory);
+        $crate::eel_region_tests!($test_tag, $editor_factory);
     };
 }

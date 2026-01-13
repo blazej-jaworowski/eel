@@ -164,7 +164,7 @@ pub mod tests {
         test_utils::new_buffer_with_content,
     };
 
-    pub async fn _test_buffer_pos(editor: impl Editor) {
+    pub async fn test_buffer_pos(editor: impl Editor) {
         let buffer = new_buffer_with_content(
             &editor,
             r#"First line
@@ -265,7 +265,7 @@ Third line!
         );
     }
 
-    pub async fn _test_buffer_set_text(editor: impl Editor) {
+    pub async fn test_buffer_set_text(editor: impl Editor) {
         let buffer = new_buffer_with_content(
             &editor,
             r#"First line
@@ -368,7 +368,7 @@ Hey, This was empty
         );
     }
 
-    pub async fn _test_buffer_append(editor: impl Editor) {
+    pub async fn test_buffer_append(editor: impl Editor) {
         let buffer = new_buffer_with_content(&editor, "").await;
 
         buffer
@@ -390,7 +390,7 @@ Hey, This was empty
         assert_buffer_content!(buffer, "First line\nSecond line");
     }
 
-    pub async fn _test_buffer_prepend(editor: impl Editor) {
+    pub async fn test_buffer_prepend(editor: impl Editor) {
         let buffer = new_buffer_with_content(&editor, "").await;
 
         buffer
@@ -412,7 +412,7 @@ Hey, This was empty
         assert_buffer_content!(buffer, "First line\nSecond line");
     }
 
-    pub async fn _test_buffer_pos_append(editor: impl Editor) {
+    pub async fn test_buffer_pos_append(editor: impl Editor) {
         let buffer = new_buffer_with_content(
             &editor,
             r#"First line
@@ -505,7 +505,7 @@ Third line! :)"#
         );
     }
 
-    pub async fn _test_buffer_append_many(editor: impl Editor) {
+    pub async fn test_buffer_append_many(editor: impl Editor) {
         let buffer = new_buffer_with_content(&editor, "").await;
 
         let mut data = String::new();
@@ -533,7 +533,7 @@ Third line! :)"#
     }
 
     #[allow(clippy::manual_async_fn)]
-    pub fn _test_buffer_set_text_parallel(
+    pub fn test_buffer_set_text_parallel(
         editor: impl Editor + 'static,
     ) -> impl Future<Output = ()> + Send + 'static {
         async move {
@@ -579,23 +579,28 @@ Third line! :)"#
 
     #[macro_export]
     macro_rules! eel_buffer_tests {
-        (@test $test_name:ident, $test_tag:meta) => {
-            $crate::test_utils::paste! {
-                #[$test_tag]
-                async fn $test_name(editor: impl $crate::Editor + 'static) {
-                    $crate::buffer::tests::[< _ $test_name >](editor).await;
-                }
-            }
+        ($test_tag:path, $editor_factory:expr, $prefix:literal) => {
+            $crate::eel_tests!(
+                test_tag: $test_tag,
+                editor_factory: $editor_factory,
+                editor_bounds: {},
+                buffer_bounds: {},
+                module_path: $crate::buffer::tests,
+                prefix: $prefix,
+                tests: [
+                    test_buffer_pos,
+                    test_buffer_set_text,
+                    test_buffer_append,
+                    test_buffer_prepend,
+                    test_buffer_pos_append,
+                    test_buffer_append_many,
+                    test_buffer_set_text_parallel,
+                ],
+            );
         };
 
-        ($test_tag:meta) => {
-            $crate::eel_buffer_tests!(@test test_buffer_pos, $test_tag);
-            $crate::eel_buffer_tests!(@test test_buffer_set_text, $test_tag);
-            $crate::eel_buffer_tests!(@test test_buffer_append, $test_tag);
-            $crate::eel_buffer_tests!(@test test_buffer_prepend, $test_tag);
-            $crate::eel_buffer_tests!(@test test_buffer_pos_append, $test_tag);
-            $crate::eel_buffer_tests!(@test test_buffer_append_many, $test_tag);
-            $crate::eel_buffer_tests!(@test test_buffer_set_text_parallel, $test_tag);
+        ($test_tag:path, $editor_factory:expr) => {
+            $crate::eel_buffer_tests!($test_tag, $editor_factory, "");
         };
     }
 }

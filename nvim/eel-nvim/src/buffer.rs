@@ -385,12 +385,11 @@ impl BufferHandle for NvimBufferHandle {
 
 #[cfg(feature = "nvim-tests")]
 mod tests {
-    use crate::{editor::NvimEditor, test_utils::run_nvim_async_test};
-    use eel::eel_full_tests;
+    use eel::{Editor, eel_full_tests};
     use eel_nvim_macros::nvim_test;
 
-    #[nvim_test]
-    async fn basic_test(_editor: NvimEditor) {
+    #[nvim_test(editor_factory = crate::test_utils::nvim_editor_factory)]
+    async fn basic_test(_editor: impl Editor) {
         let var_key = "test_value";
         let original_value = String::from("Hello!");
 
@@ -400,5 +399,8 @@ mod tests {
         assert_eq!(value, original_value);
     }
 
-    eel_full_tests!(nvim_test);
+    eel_full_tests!(
+        ::eel_nvim_macros::nvim_test,
+        crate::test_utils::nvim_editor_factory
+    );
 }

@@ -1,9 +1,11 @@
+use async_trait::async_trait;
+
 use crate::{
     Result,
     buffer::{Buffer, BufferHandle},
 };
 
-#[async_trait::async_trait]
+#[async_trait]
 pub trait Editor: Sized + Sync + Send + 'static {
     type Buffer: Buffer;
     type BufferHandle: BufferHandle<Buffer = Self::Buffer>;

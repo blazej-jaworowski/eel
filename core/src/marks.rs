@@ -163,7 +163,7 @@ pub mod tests {
 
     use super::*;
 
-    pub async fn _test_marks_basic<E>(editor: E)
+    pub async fn test_marks_basic<E>(editor: E)
     where
         E: Editor,
         E::Buffer: MarksBuffer,
@@ -187,7 +187,7 @@ pub mod tests {
         assert_eq!(position, Position::new(1, 0));
     }
 
-    pub async fn _test_marks_set_text<E>(editor: E)
+    pub async fn test_marks_set_text<E>(editor: E)
     where
         E: Editor,
         E::Buffer: MarksBuffer,
@@ -214,7 +214,7 @@ pub mod tests {
         assert_eq!(position, Position::new(1, 7));
     }
 
-    pub async fn _test_marks_gravity_right<E>(editor: E)
+    pub async fn test_marks_gravity_right<E>(editor: E)
     where
         E: Editor,
         E::Buffer: MarksBuffer,
@@ -261,7 +261,7 @@ pub mod tests {
         );
     }
 
-    pub async fn _test_marks_gravity_left<E>(editor: E)
+    pub async fn test_marks_gravity_left<E>(editor: E)
     where
         E: Editor,
         E::Buffer: MarksBuffer,
@@ -316,24 +316,25 @@ pub mod tests {
 
     #[macro_export]
     macro_rules! eel_marks_tests {
-        (@test $test_name:ident, $test_tag:meta) => {
-            $crate::test_utils::paste! {
-                #[$test_tag]
-                async fn $test_name<E>(editor: E)
-                where
-                    E: $crate::Editor,
-                    E::Buffer: $crate::marks::MarksBuffer,
-                {
-                    $crate::marks::tests::[< _ $test_name >](editor).await;
-                }
-            }
+        ($test_tag:path, $editor_factory:expr, $prefix:literal) => {
+            $crate::eel_tests!(
+                test_tag: $test_tag,
+                editor_factory: $editor_factory,
+                editor_bounds: {},
+                buffer_bounds: { $crate::marks::MarksBuffer },
+                module_path: $crate::marks::tests,
+                prefix: $prefix,
+                tests: [
+                    test_marks_basic,
+                    test_marks_set_text,
+                    test_marks_gravity_right,
+                    test_marks_gravity_left,
+                ],
+            );
         };
 
-        ($test_tag:meta) => {
-            $crate::eel_marks_tests!(@test test_marks_basic, $test_tag);
-            $crate::eel_marks_tests!(@test test_marks_set_text, $test_tag);
-            $crate::eel_marks_tests!(@test test_marks_gravity_right, $test_tag);
-            $crate::eel_marks_tests!(@test test_marks_gravity_left, $test_tag);
+        ($test_tag:path, $editor_factory:expr) => {
+            $crate::eel_marks_tests!($test_tag, $editor_factory, "");
         };
     }
 }
