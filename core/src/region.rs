@@ -359,7 +359,7 @@ Fourth line"#
 
     #[macro_export]
     macro_rules! eel_region_tests {
-        (@test $test_name:ident, $test_tag:path) => {
+        (@test $test_name:ident, $test_tag:meta) => {
             $crate::test_utils::paste! {
                 #[$test_tag]
                 async fn $test_name<E>(editor: E)
@@ -372,7 +372,7 @@ Fourth line"#
             }
         };
 
-        ($test_tag:path) => {
+        ($test_tag:meta) => {
             $crate::eel_region_tests!(@test test_region_line_count, $test_tag);
             $crate::eel_region_tests!(@test test_region_get_lines, $test_tag);
             $crate::eel_region_tests!(@test test_region_set_text, $test_tag);

@@ -21,9 +21,9 @@ pub mod test_utils;
 #[cfg(feature = "tests")]
 #[macro_export]
 macro_rules! eel_full_tests {
-    ($test_tag:path) => {
+    ($test_tag:meta) => {
         $crate::eel_buffer_tests!($test_tag);
-        $crate::eel_cursor_buffer_tests!($test_tag);
+        $crate::eel_cursor_tests!($test_tag);
         $crate::eel_marks_tests!($test_tag);
         $crate::eel_region_tests!($test_tag);
     };

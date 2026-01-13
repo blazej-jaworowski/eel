@@ -224,8 +224,8 @@ Third line!"#
     }
 
     #[macro_export]
-    macro_rules! eel_cursor_buffer_tests {
-        (@test $test_name:ident, $test_tag:path) => {
+    macro_rules! eel_cursor_tests {
+        (@test $test_name:ident, $test_tag:meta) => {
             $crate::test_utils::paste! {
                 #[$test_tag]
                 async fn $test_name<E>(editor: E)
@@ -238,11 +238,11 @@ Third line!"#
             }
         };
 
-        ($test_tag:path) => {
-            $crate::eel_cursor_buffer_tests!(@test test_buffer_cursor, $test_tag);
-            $crate::eel_cursor_buffer_tests!(@test test_buffer_cursor_append, $test_tag);
-            $crate::eel_cursor_buffer_tests!(@test test_buffer_type_text, $test_tag);
-            $crate::eel_cursor_buffer_tests!(@test test_buffer_type_text_empty, $test_tag);
+        ($test_tag:meta) => {
+            $crate::eel_cursor_tests!(@test test_buffer_cursor, $test_tag);
+            $crate::eel_cursor_tests!(@test test_buffer_cursor_append, $test_tag);
+            $crate::eel_cursor_tests!(@test test_buffer_type_text, $test_tag);
+            $crate::eel_cursor_tests!(@test test_buffer_type_text_empty, $test_tag);
         };
     }
 }

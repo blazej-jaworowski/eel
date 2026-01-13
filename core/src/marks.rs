@@ -316,7 +316,7 @@ pub mod tests {
 
     #[macro_export]
     macro_rules! eel_marks_tests {
-        (@test $test_name:ident, $test_tag:path) => {
+        (@test $test_name:ident, $test_tag:meta) => {
             $crate::test_utils::paste! {
                 #[$test_tag]
                 async fn $test_name<E>(editor: E)
@@ -329,7 +329,7 @@ pub mod tests {
             }
         };
 
-        ($test_tag:path) => {
+        ($test_tag:meta) => {
             $crate::eel_marks_tests!(@test test_marks_basic, $test_tag);
             $crate::eel_marks_tests!(@test test_marks_set_text, $test_tag);
             $crate::eel_marks_tests!(@test test_marks_gravity_right, $test_tag);

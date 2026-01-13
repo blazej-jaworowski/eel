@@ -579,7 +579,7 @@ Third line! :)"#
 
     #[macro_export]
     macro_rules! eel_buffer_tests {
-        (@test $test_name:ident, $test_tag:path) => {
+        (@test $test_name:ident, $test_tag:meta) => {
             $crate::test_utils::paste! {
                 #[$test_tag]
                 async fn $test_name(editor: impl $crate::Editor + 'static) {
@@ -588,7 +588,7 @@ Third line! :)"#
             }
         };
 
-        ($test_tag:path) => {
+        ($test_tag:meta) => {
             $crate::eel_buffer_tests!(@test test_buffer_pos, $test_tag);
             $crate::eel_buffer_tests!(@test test_buffer_set_text, $test_tag);
             $crate::eel_buffer_tests!(@test test_buffer_append, $test_tag);
