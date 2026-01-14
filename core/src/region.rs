@@ -5,13 +5,13 @@ use async_trait::async_trait;
 use crate::{
     Position, Result,
     buffer::{Buffer, BufferHandle, BufferReadLock, BufferWriteLock},
-    marks::{Gravity, Mark, MarksBuffer},
+    mark::{Gravity, Mark, MarkBuffer},
 };
 
 pub struct BufferRegion<B>
 where
     B: BufferHandle,
-    B::Buffer: MarksBuffer,
+    B::Buffer: MarkBuffer,
 {
     start: Mark<B>,
     end: Mark<B>,
@@ -20,7 +20,7 @@ where
 impl<B> BufferRegion<B>
 where
     B: BufferHandle,
-    B::Buffer: MarksBuffer,
+    B::Buffer: MarkBuffer,
 {
     pub async fn new(buffer: &B, start: &Position, end: &Position) -> Result<Self> {
         let start = Mark::new(buffer, start).await?;
@@ -78,7 +78,7 @@ where
 impl<B> Buffer for BufferRegion<B>
 where
     B: BufferHandle,
-    B::Buffer: MarksBuffer,
+    B::Buffer: MarkBuffer,
 {
     async fn line_count(&self) -> Result<usize> {
         let buffer = self.get_buffer().read().await;
@@ -140,7 +140,7 @@ where
     }
 }
 
-// TODO: Implement MarksBuffer and CursorBuffer traits
+// TODO: Implement MarkBuffer and CursorBuffer traits
 
 #[cfg(feature = "tests")]
 pub mod tests {
@@ -151,7 +151,7 @@ pub mod tests {
     async fn init_test_region<E>(editor: &E) -> (E::BufferHandle, BufferRegion<E::BufferHandle>)
     where
         E: Editor,
-        E::Buffer: MarksBuffer,
+        E::Buffer: MarkBuffer,
     {
         let buffer = new_buffer_with_content(
             editor,
@@ -172,7 +172,7 @@ Fourth line"#,
     pub async fn test_region_line_count<E>(editor: E)
     where
         E: Editor,
-        E::Buffer: MarksBuffer,
+        E::Buffer: MarkBuffer,
     {
         let (_, region) = init_test_region(&editor).await;
 
@@ -185,7 +185,7 @@ Fourth line"#,
     pub async fn test_region_get_lines<E>(editor: E)
     where
         E: Editor,
-        E::Buffer: MarksBuffer,
+        E::Buffer: MarkBuffer,
     {
         let (_, region) = init_test_region(&editor).await;
 
@@ -217,7 +217,7 @@ Fourth line"#,
     pub async fn test_region_set_text<E>(editor: E)
     where
         E: Editor,
-        E::Buffer: MarksBuffer,
+        E::Buffer: MarkBuffer,
     {
         let (buffer, mut region) = init_test_region(&editor).await;
 
@@ -302,7 +302,7 @@ Fourth line"#
     pub async fn test_region_empty<E>(editor: E)
     where
         E: Editor,
-        E::Buffer: MarksBuffer,
+        E::Buffer: MarkBuffer,
     {
         let buffer = new_buffer_with_content(
             &editor,
@@ -364,7 +364,7 @@ Fourth line"#
                 test_tag: $test_tag,
                 editor_factory: $editor_factory,
                 editor_bounds: {},
-                buffer_bounds: { $crate::marks::MarksBuffer },
+                buffer_bounds: { $crate::mark::MarkBuffer },
                 module_path: $crate::region::tests,
                 prefix: $prefix,
                 tests: [

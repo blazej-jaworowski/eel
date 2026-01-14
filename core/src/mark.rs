@@ -21,7 +21,7 @@ pub enum Gravity {
 }
 
 #[async_trait]
-pub trait MarksBuffer: Buffer {
+pub trait MarkBuffer: Buffer {
     type MarkId: MarkId;
 
     async fn create_mark(&mut self, pos: &Position) -> Result<Self::MarkId>;
@@ -37,9 +37,9 @@ pub trait MarksBuffer: Buffer {
 pub struct Mark<B>
 where
     B: BufferHandle,
-    B::Buffer: MarksBuffer,
+    B::Buffer: MarkBuffer,
 {
-    id: <B::Buffer as MarksBuffer>::MarkId,
+    id: <B::Buffer as MarkBuffer>::MarkId,
     buffer: B,
     ref_count: Arc<AtomicU64>,
 }
@@ -47,7 +47,7 @@ where
 impl<B> Clone for Mark<B>
 where
     B: BufferHandle,
-    B::Buffer: MarksBuffer,
+    B::Buffer: MarkBuffer,
 {
     fn clone(&self) -> Self {
         let prev_count = self.ref_count.fetch_add(1, Ordering::Relaxed);
@@ -65,7 +65,7 @@ where
 impl<B> Drop for Mark<B>
 where
     B: BufferHandle,
-    B::Buffer: MarksBuffer,
+    B::Buffer: MarkBuffer,
 {
     fn drop(&mut self) {
         let prev_count = self.ref_count.fetch_sub(1, Ordering::Relaxed);
@@ -92,7 +92,7 @@ where
 impl<B> Mark<B>
 where
     B: BufferHandle,
-    B::Buffer: MarksBuffer,
+    B::Buffer: MarkBuffer,
 {
     pub async fn new(buffer: &B, position: &Position) -> Result<Self> {
         let mut lock = buffer.write().await;
@@ -163,10 +163,10 @@ pub mod tests {
 
     use super::*;
 
-    pub async fn test_marks_basic<E>(editor: E)
+    pub async fn test_mark_basic<E>(editor: E)
     where
         E: Editor,
-        E::Buffer: MarksBuffer,
+        E::Buffer: MarkBuffer,
     {
         let buffer = new_buffer_with_content(&editor, "test\ntest2").await;
 
@@ -187,10 +187,10 @@ pub mod tests {
         assert_eq!(position, Position::new(1, 0));
     }
 
-    pub async fn test_marks_set_text<E>(editor: E)
+    pub async fn test_mark_set_text<E>(editor: E)
     where
         E: Editor,
-        E::Buffer: MarksBuffer,
+        E::Buffer: MarkBuffer,
     {
         let buffer = new_buffer_with_content(&editor, "First line").await;
 
@@ -214,10 +214,10 @@ pub mod tests {
         assert_eq!(position, Position::new(1, 7));
     }
 
-    pub async fn test_marks_gravity_right<E>(editor: E)
+    pub async fn test_mark_gravity_right<E>(editor: E)
     where
         E: Editor,
-        E::Buffer: MarksBuffer,
+        E::Buffer: MarkBuffer,
     {
         let buffer = new_buffer_with_content(&editor, "First line").await;
 
@@ -261,10 +261,10 @@ pub mod tests {
         );
     }
 
-    pub async fn test_marks_gravity_left<E>(editor: E)
+    pub async fn test_mark_gravity_left<E>(editor: E)
     where
         E: Editor,
-        E::Buffer: MarksBuffer,
+        E::Buffer: MarkBuffer,
     {
         let buffer = new_buffer_with_content(&editor, "First line").await;
 
@@ -315,26 +315,26 @@ pub mod tests {
     // TODO: Test reference counting and cleanup.
 
     #[macro_export]
-    macro_rules! eel_marks_tests {
+    macro_rules! eel_mark_tests {
         ($test_tag:path, $editor_factory:expr, $prefix:literal) => {
             $crate::eel_tests!(
                 test_tag: $test_tag,
                 editor_factory: $editor_factory,
                 editor_bounds: {},
-                buffer_bounds: { $crate::marks::MarksBuffer },
-                module_path: $crate::marks::tests,
+                buffer_bounds: { $crate::mark::MarkBuffer },
+                module_path: $crate::mark::tests,
                 prefix: $prefix,
                 tests: [
-                    test_marks_basic,
-                    test_marks_set_text,
-                    test_marks_gravity_right,
-                    test_marks_gravity_left,
+                    test_mark_basic,
+                    test_mark_set_text,
+                    test_mark_gravity_right,
+                    test_mark_gravity_left,
                 ],
             );
         };
 
         ($test_tag:path, $editor_factory:expr) => {
-            $crate::eel_marks_tests!($test_tag, $editor_factory, "");
+            $crate::eel_mark_tests!($test_tag, $editor_factory, "");
         };
     }
 }

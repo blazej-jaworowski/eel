@@ -12,7 +12,7 @@ pub use position::Position;
 
 pub mod buffer;
 pub mod cursor;
-pub mod marks;
+pub mod mark;
 pub mod region;
 
 #[cfg(feature = "tests")]
@@ -24,7 +24,7 @@ macro_rules! eel_full_tests {
     ($test_tag:path, $editor_factory:expr) => {
         $crate::eel_buffer_tests!($test_tag, $editor_factory);
         $crate::eel_cursor_tests!($test_tag, $editor_factory);
-        $crate::eel_marks_tests!($test_tag, $editor_factory);
+        $crate::eel_mark_tests!($test_tag, $editor_factory);
         $crate::eel_region_tests!($test_tag, $editor_factory);
     };
 }

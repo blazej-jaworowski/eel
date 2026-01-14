@@ -16,7 +16,7 @@ use eel::{
     Position, Result,
     buffer::{Buffer, BufferHandle, BufferReadLock, BufferWriteLock},
     cursor::CursorBuffer,
-    marks::{Gravity, MarkId, MarksBuffer},
+    mark::{Gravity, MarkBuffer, MarkId},
 };
 
 /// Represents a coordinate location within a Neovim buffer.
@@ -228,7 +228,7 @@ impl From<&NvimMarkId> for u32 {
 impl MarkId for NvimMarkId {}
 
 #[async_trait]
-impl MarksBuffer for NvimBuffer {
+impl MarkBuffer for NvimBuffer {
     type MarkId = NvimMarkId;
 
     async fn create_mark(&mut self, pos: &Position) -> Result<NvimMarkId> {
