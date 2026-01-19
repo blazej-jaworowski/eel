@@ -1,22 +1,14 @@
 use std::{ops::RangeBounds, sync::Arc};
 
 use async_trait::async_trait;
-use nvim_oxi::api::opts::{GetExtmarkByIdOpts, SetExtmarkOpts};
 use tokio::sync::RwLock;
 use tracing::trace;
 
-use crate::{
-    async_dispatch::Dispatcher,
-    editor::get_eel_namespace,
-    error::{Error as NvimError, IntoNvimResult as _},
-    window::NvimWindow,
-};
+use crate::{async_dispatch::Dispatcher, error::Error as NvimError};
 
 use eel::{
     Position, Result,
     buffer::{Buffer, BufferHandle, BufferReadLock, BufferWriteLock},
-    cursor::CursorBuffer,
-    mark::{Gravity, MarkBuffer, MarkId},
 };
 
 /// Represents a coordinate location within a Neovim buffer.
@@ -81,25 +73,6 @@ impl NvimBuffer {
 
     pub(crate) fn inner_buf(&self) -> nvim_oxi::api::Buffer {
         self.handle.into()
-    }
-
-    async fn get_window(&self) -> Result<Option<NvimWindow>> {
-        let handle = self.handle;
-
-        let nvim_window = self
-            .dispatcher
-            .dispatch(move || {
-                nvim_oxi::api::list_wins().find(|win| {
-                    if let Ok(buf) = win.get_buf() {
-                        buf.handle() == handle
-                    } else {
-                        false
-                    }
-                })
-            })
-            .await?;
-
-        Ok(nvim_window.map(|w| NvimWindow::wrap(w, self.dispatcher.clone())))
     }
 }
 
@@ -169,169 +142,6 @@ impl Buffer for NvimBuffer {
     }
 }
 
-#[async_trait]
-impl CursorBuffer for NvimBuffer {
-    async fn get_cursor(&self) -> Result<Position> {
-        let position: Position = match self.get_window().await? {
-            Some(w) => w.get_cursor().await?,
-            None => {
-                let native: NativePosition = self.inner_buf().get_mark('\"').into_nvim()?.into();
-                native.into()
-            }
-        };
-
-        if self.get_line(position.row).await?.is_empty() {
-            Ok(Position::new(position.row, 0))
-        } else {
-            Ok(position)
-        }
-    }
-
-    async fn set_cursor(&mut self, position: &Position) -> Result<()> {
-        self.validate_pos(position).await?;
-
-        match &mut self.get_window().await? {
-            Some(w) => w.set_cursor(position).await?,
-            None => {
-                let native: NativePosition = position.clone().into();
-                self.inner_buf()
-                    .set_mark('\"', native.row, native.col, &Default::default())
-                    .map_err(NvimError::from)?
-            }
-        };
-
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct NvimMarkId(u32);
-
-impl From<u32> for NvimMarkId {
-    fn from(value: u32) -> Self {
-        NvimMarkId(value)
-    }
-}
-
-impl From<NvimMarkId> for u32 {
-    fn from(value: NvimMarkId) -> Self {
-        value.0
-    }
-}
-
-impl From<&NvimMarkId> for u32 {
-    fn from(value: &NvimMarkId) -> Self {
-        value.0
-    }
-}
-
-impl MarkId for NvimMarkId {}
-
-#[async_trait]
-impl MarkBuffer for NvimBuffer {
-    type MarkId = NvimMarkId;
-
-    async fn create_mark(&mut self, pos: &Position) -> Result<NvimMarkId> {
-        let native_pos: NativePosition = pos.clone().into();
-        let mut buf = self.inner_buf();
-
-        let extmark_id = self
-            .dispatcher
-            .dispatch(move || {
-                buf.set_extmark(
-                    get_eel_namespace(),
-                    native_pos.row - 1,
-                    native_pos.col - 1,
-                    &SetExtmarkOpts::default(),
-                )
-            })
-            .await?
-            .into_nvim()?;
-
-        Ok(extmark_id.into())
-    }
-
-    async fn destroy_mark(&mut self, id: Self::MarkId) -> Result<()> {
-        // TODO: Return specific Error::Destroyed error when accessing destroyed mark
-
-        let mut buf = self.inner_buf();
-
-        self.dispatcher
-            .dispatch(move || buf.del_extmark(get_eel_namespace(), id.into()))
-            .await?
-            .into_nvim()?;
-
-        Ok(())
-    }
-
-    async fn get_mark_position(&self, id: Self::MarkId) -> Result<Position> {
-        let buf = self.inner_buf();
-
-        let (row, col, _) = self
-            .dispatcher
-            .dispatch(move || {
-                buf.get_extmark_by_id(
-                    get_eel_namespace(),
-                    id.into(),
-                    &GetExtmarkByIdOpts::default(),
-                )
-            })
-            .await?
-            .into_nvim()?;
-
-        Ok(Position::new(row, col))
-    }
-    async fn set_mark_position(&mut self, id: Self::MarkId, pos: &Position) -> Result<()> {
-        let native_pos: NativePosition = pos.clone().into();
-        let mut buf = self.inner_buf();
-
-        self.dispatcher
-            .dispatch(move || {
-                buf.set_extmark(
-                    get_eel_namespace(),
-                    native_pos.row - 1,
-                    native_pos.col - 1,
-                    &SetExtmarkOpts::builder().id(id.into()).build(),
-                )
-            })
-            .await?
-            .into_nvim()?;
-
-        Ok(())
-    }
-
-    async fn set_mark_gravity(&mut self, id: Self::MarkId, gravity: Gravity) -> Result<()> {
-        let mut buf = self.inner_buf();
-
-        let pos = self.get_mark_position(id).await?;
-
-        self.dispatcher
-            .dispatch(move || {
-                // TODO: In my opinion you shouldn't have to delete an extmark and create a new one to change options,
-                //       but it doesn't work otherwise. Should investigate.
-                buf.del_extmark(get_eel_namespace(), id.into())?;
-
-                buf.set_extmark(
-                    get_eel_namespace(),
-                    pos.row,
-                    pos.col,
-                    &SetExtmarkOpts::builder()
-                        .id(id.into())
-                        .right_gravity(match gravity {
-                            Gravity::Left => false,
-                            Gravity::Right => true,
-                        })
-                        .build(),
-                )?;
-
-                Ok::<_, NvimError>(())
-            })
-            .await??;
-
-        Ok(())
-    }
-}
-
 #[derive(Clone, derivative::Derivative)]
 #[derivative(Debug, Eq, PartialEq)]
 pub struct NvimBufferHandle {
@@ -382,6 +192,12 @@ impl BufferHandle for NvimBufferHandle {
         }
     }
 }
+
+#[cfg(feature = "cursor")]
+pub mod cursor;
+
+#[cfg(feature = "mark")]
+pub mod mark;
 
 #[cfg(feature = "nvim-tests")]
 mod tests {

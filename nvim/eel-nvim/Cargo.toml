@@ -7,7 +7,7 @@ edition = "2024"
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-eel = { version = "0.0.1", path = "../../core" }
+eel = { version = "0.0.1", path = "../../core", default-features = false }
 eel-nvim-macros = { version = "0.0.1", path = "../eel-nvim-macros", optional = true }
 
 async-trait = "0.1.89"
@@ -24,5 +24,9 @@ derivative = "2.2.0"
 nvim-oxi = { version = "0.6.0", features = ["neovim-0-11", "test"] }
 
 [features]
-default = []
+default = ["cursor", "mark", "region"]
+tests = []
+cursor = ["eel/cursor"]
+mark = ["eel/mark"]
+region = ["eel/region", "mark"]
 nvim-tests = ["dep:eel-nvim-macros", "nvim-oxi/test", "eel/tests"]

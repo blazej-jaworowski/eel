@@ -1,9 +1,5 @@
-use itertools::Itertools;
-
 use crate::{
-    Position,
     buffer::{Buffer, BufferHandle},
-    cursor::CursorBuffer,
     editor::Editor,
 };
 
@@ -71,83 +67,94 @@ pub async fn new_buffer_with_content<E: Editor>(editor: &E, content: &str) -> E:
     buffer
 }
 
-pub async fn new_buffer_with_state<E>(editor: &E, state: &str) -> E::BufferHandle
-where
-    E: Editor,
-    E::Buffer: CursorBuffer,
-{
-    let buffer = editor
-        .new_buffer()
-        .await
-        .expect("Failed to create test buffer");
+#[cfg(feature = "cursor")]
+mod cursor {
+    use itertools::Itertools as _;
 
-    assert_buffer_state!(buffer, "|");
+    use super::*;
+    use crate::{Position, cursor::CursorBuffer};
 
-    set_buffer_state(&buffer, state).await;
-
-    assert_buffer_state!(buffer, state);
-
-    buffer
-}
-
-pub async fn set_buffer_state<B>(buffer: &B, state: &str)
-where
-    B: BufferHandle,
-    B::Buffer: CursorBuffer,
-{
-    let (content, position) = parse_buffer_state(state);
-
+    pub async fn new_buffer_with_state<E>(editor: &E, state: &str) -> E::BufferHandle
+    where
+        E: Editor,
+        E::Buffer: CursorBuffer,
     {
-        let mut buffer_lock = buffer.write().await;
-
-        buffer_lock
-            .set_content(&content)
+        let buffer = editor
+            .new_buffer()
             .await
-            .expect("Failed to set content");
+            .expect("Failed to create test buffer");
 
-        buffer_lock
-            .set_cursor(&position)
-            .await
-            .expect("Failed to set position");
+        assert_buffer_state!(buffer, "|");
+
+        set_buffer_state(&buffer, state).await;
+
+        assert_buffer_state!(buffer, state);
+
+        buffer
     }
 
-    assert_buffer_state!(buffer, state)
-}
+    pub async fn set_buffer_state<B>(buffer: &B, state: &str)
+    where
+        B: BufferHandle,
+        B::Buffer: CursorBuffer,
+    {
+        let (content, position) = parse_buffer_state(state);
 
-pub fn parse_buffer_state(state: &str) -> (String, Position) {
-    let lines = state.lines();
-    let mut cursor_pos: Option<Position> = None;
+        {
+            let mut buffer_lock = buffer.write().await;
 
-    let mut content: String = lines
-        .enumerate()
-        .map(|(i, line)| {
-            let parts = line.split("|").collect_vec();
+            buffer_lock
+                .set_content(&content)
+                .await
+                .expect("Failed to set content");
 
-            let (l, r) = match parts.as_slice() {
-                [s] => return s.to_string(),
-                [l, r] => (*l, *r),
-                _ => panic!("State string can only contain a single '|' cursor marker"),
-            };
+            buffer_lock
+                .set_cursor(&position)
+                .await
+                .expect("Failed to set position");
+        }
 
-            if cursor_pos.is_some() {
-                panic!("State string can only contain a single '|' cursor marker");
-            }
-
-            cursor_pos = Some(Position::new(i, l.len()));
-
-            format!("{l}{r}")
-        })
-        .join("\n");
-
-    // str::lines() removes the last newline if it's present, we want to preserve it
-    if state.ends_with("\n") {
-        content.push('\n');
+        assert_buffer_state!(buffer, state)
     }
 
-    let cursor_pos = cursor_pos.expect("State string should contain a '|' cursor marker");
+    pub fn parse_buffer_state(state: &str) -> (String, Position) {
+        let lines = state.lines();
+        let mut cursor_pos: Option<Position> = None;
 
-    (content, cursor_pos)
+        let mut content: String = lines
+            .enumerate()
+            .map(|(i, line)| {
+                let parts = line.split("|").collect_vec();
+
+                let (l, r) = match parts.as_slice() {
+                    [s] => return s.to_string(),
+                    [l, r] => (*l, *r),
+                    _ => panic!("State string can only contain a single '|' cursor marker"),
+                };
+
+                if cursor_pos.is_some() {
+                    panic!("State string can only contain a single '|' cursor marker");
+                }
+
+                cursor_pos = Some(Position::new(i, l.len()));
+
+                format!("{l}{r}")
+            })
+            .join("\n");
+
+        // str::lines() removes the last newline if it's present, we want to preserve it
+        if state.ends_with("\n") {
+            content.push('\n');
+        }
+
+        let cursor_pos = cursor_pos.expect("State string should contain a '|' cursor marker");
+
+        (content, cursor_pos)
+    }
 }
+
+#[cfg(feature = "cursor")]
+pub use cursor::*;
 
 #[macro_export]
 macro_rules! eel_tests {

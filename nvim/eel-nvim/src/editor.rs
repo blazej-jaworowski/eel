@@ -115,6 +115,7 @@ impl Editor for NvimEditor {
     }
 }
 
+#[allow(unused)]
 pub(crate) fn get_eel_namespace() -> u32 {
     nvim_oxi::api::create_namespace("eel")
 }
