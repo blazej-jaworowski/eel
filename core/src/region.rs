@@ -22,42 +22,39 @@ where
     B: BufferHandle,
     B::Buffer: MarkBuffer,
 {
-    pub async fn new(buffer: &B, start: &Position, end: &Position) -> Result<Self> {
-        let start = Mark::new(buffer, start).await?;
-        let end = Mark::new(buffer, end).await?;
-
-        start.set_gravity(Gravity::Left).await?;
-        end.set_gravity(Gravity::Right).await?;
-
-        Ok(BufferRegion { start, end })
-    }
-
-    pub async fn new_locked(
+    pub async fn new(
         buffer: &B,
         start: &Position,
         end: &Position,
-        buffer_lock: &mut impl BufferWriteLock<B::Buffer>,
+        mut buffer_lock: impl BufferWriteLock<Buffer = B::Buffer>,
     ) -> Result<Self> {
-        let start = Mark::new_locked(buffer, start, buffer_lock).await?;
-        let end = Mark::new_locked(buffer, end, buffer_lock).await?;
+        let start = Mark::new(buffer, start, &mut *buffer_lock).await?;
+        let end = Mark::new(buffer, end, &mut *buffer_lock).await?;
 
-        start.set_gravity(Gravity::Left).await?;
-        end.set_gravity(Gravity::Right).await?;
+        start
+            .write(&mut *buffer_lock)
+            .set_gravity(Gravity::Left)
+            .await?;
+
+        end.write(&mut *buffer_lock)
+            .set_gravity(Gravity::Right)
+            .await?;
 
         Ok(BufferRegion { start, end })
     }
 
-    pub async fn translate_position(&self, pos: &Position) -> Result<Position> {
-        let lock = self.get_buffer().read().await;
-        self.translate_position_locked(pos, &lock).await
+    pub async fn lock_new(buffer: &B, start: &Position, end: &Position) -> Result<Self> {
+        let lock = buffer.write().await;
+
+        Self::new(buffer, start, end, lock).await
     }
 
-    pub async fn translate_position_locked(
+    pub async fn translate_position(
         &self,
         pos: &Position,
-        buffer_lock: &impl BufferReadLock<B::Buffer>,
+        buffer_lock: impl BufferReadLock<Buffer = B::Buffer>,
     ) -> Result<Position> {
-        let start_pos = self.start.get_position_locked(buffer_lock).await?;
+        let start_pos = self.start.read(buffer_lock).get_position().await?;
 
         Ok(Position {
             row: start_pos.row + pos.row,
@@ -67,6 +64,11 @@ where
                 pos.col
             },
         })
+    }
+
+    pub async fn lock_translate_position(&self, pos: &Position) -> Result<Position> {
+        let lock = self.get_buffer().read().await;
+        self.translate_position(pos, lock).await
     }
 
     pub fn get_buffer(&self) -> &B {
@@ -83,8 +85,8 @@ where
     async fn line_count(&self) -> Result<usize> {
         let buffer = self.get_buffer().read().await;
 
-        let start = self.start.get_position_locked(&buffer).await?;
-        let end = self.end.get_position_locked(&buffer).await?;
+        let start = self.start.read(&*buffer).get_position().await?;
+        let end = self.end.read(&*buffer).get_position().await?;
 
         Ok(end.row - start.row + 1)
     }
@@ -97,8 +99,8 @@ where
 
         let line_count = self.line_count().await?;
 
-        let start_pos = self.start.get_position_locked(&buffer).await?;
-        let end_pos = self.end.get_position_locked(&buffer).await?;
+        let start_pos = self.start.read(&*buffer).get_position().await?;
+        let end_pos = self.end.read(&*buffer).get_position().await?;
 
         let start_bound = match range.start_bound() {
             Bound::Included(i) => *i,
@@ -133,8 +135,8 @@ where
     async fn set_text(&mut self, start: &Position, end: &Position, text: &str) -> Result<()> {
         let mut buffer = self.get_buffer().write().await;
 
-        let abs_start = self.translate_position_locked(start, &buffer).await?;
-        let abs_end = self.translate_position_locked(end, &buffer).await?;
+        let abs_start = self.translate_position(start, &*buffer).await?;
+        let abs_end = self.translate_position(end, &*buffer).await?;
 
         buffer.set_text(&abs_start, &abs_end, text).await
     }
@@ -162,7 +164,7 @@ Fourth line"#,
         )
         .await;
 
-        let region = BufferRegion::new(&buffer, &Position::new(1, 2), &Position::new(2, 5))
+        let region = BufferRegion::lock_new(&buffer, &Position::new(1, 2), &Position::new(2, 5))
             .await
             .expect("Failed to create region");
 
@@ -313,9 +315,10 @@ Fourth line"#,
         )
         .await;
 
-        let mut region = BufferRegion::new(&buffer, &Position::new(1, 11), &Position::new(1, 11))
-            .await
-            .expect("Failed to create region");
+        let mut region =
+            BufferRegion::lock_new(&buffer, &Position::new(1, 11), &Position::new(1, 11))
+                .await
+                .expect("Failed to create region");
 
         assert_eq!(
             region.line_count().await.expect("Failed to get line count"),

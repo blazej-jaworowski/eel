@@ -162,7 +162,10 @@ impl NvimBufferHandle {
 impl BufferHandle for NvimBufferHandle {
     type Buffer = NvimBuffer;
 
-    fn read(&self) -> impl Future<Output = impl BufferReadLock<Self::Buffer>> + Send + 'static {
+    fn read(
+        &self,
+    ) -> impl Future<Output = impl BufferReadLock<Buffer = Self::Buffer> + 'static> + Send + 'static
+    {
         let lock = self.buffer_lock.clone();
         let id = self.id;
 
@@ -177,7 +180,10 @@ impl BufferHandle for NvimBufferHandle {
         }
     }
 
-    fn write(&self) -> impl Future<Output = impl BufferWriteLock<Self::Buffer>> + Send + 'static {
+    fn write(
+        &self,
+    ) -> impl Future<Output = impl BufferWriteLock<Buffer = Self::Buffer> + 'static> + Send + 'static
+    {
         let lock = self.buffer_lock.clone();
         let id = self.id;
 

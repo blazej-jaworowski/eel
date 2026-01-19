@@ -10,7 +10,7 @@ use crate::{editor::get_eel_namespace, error::Error as NvimError, error::IntoNvi
 
 use super::{NativePosition, NvimBuffer};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NvimMarkId(u32);
 
 impl From<u32> for NvimMarkId {

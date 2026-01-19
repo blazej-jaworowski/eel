@@ -130,29 +130,37 @@ pub trait Buffer: Send + Sync {
     }
 }
 
-pub trait BufferReadLock<B: Buffer>: std::ops::Deref<Target = B> + Sync + Send + 'static {}
-pub trait BufferWriteLock<B: Buffer>: std::ops::DerefMut<Target = B> + BufferReadLock<B> {}
+pub trait BufferReadLock: std::ops::Deref<Target = Self::Buffer> + Sync + Send {
+    type Buffer: Buffer;
+}
+pub trait BufferWriteLock: BufferReadLock + std::ops::DerefMut<Target = Self::Buffer> {}
 
-impl<B, D> BufferReadLock<B> for D
+impl<D, B> BufferReadLock for D
 where
     B: Buffer,
-    D: std::ops::Deref<Target = B> + Sync + Send + 'static,
+    D: std::ops::Deref<Target = B> + Sync + Send,
 {
+    type Buffer = B;
 }
 
-impl<B, D> BufferWriteLock<B> for D
+impl<B, D> BufferWriteLock for D
 where
     B: Buffer,
-    D: std::ops::DerefMut<Target = B> + Sync + Send + 'static,
+    D: BufferReadLock<Buffer = B>,
+    D: std::ops::DerefMut<Target = B> + Sync + Send,
 {
 }
 
 pub trait BufferHandle: Eq + Clone + Send + Sync + 'static {
     type Buffer: Buffer;
 
-    fn read(&self) -> impl Future<Output = impl BufferReadLock<Self::Buffer>> + Send + 'static;
+    fn read(
+        &self,
+    ) -> impl Future<Output = impl BufferReadLock<Buffer = Self::Buffer> + 'static> + Send + 'static;
 
-    fn write(&self) -> impl Future<Output = impl BufferWriteLock<Self::Buffer>> + Send + 'static;
+    fn write(
+        &self,
+    ) -> impl Future<Output = impl BufferWriteLock<Buffer = Self::Buffer> + 'static> + Send + 'static;
 }
 
 #[cfg(feature = "tests")]
