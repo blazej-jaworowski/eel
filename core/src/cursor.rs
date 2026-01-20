@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use crate::{
     Position, Result,
-    buffer::{ReadBuffer, WriteBuffer},
+    buffer::{BufferHandle, ReadBuffer, WriteBuffer},
 };
 
 #[async_trait]
@@ -47,6 +47,23 @@ pub trait CursorWriteBuffer: CursorReadBuffer + WriteBuffer {
     }
 }
 
+pub trait CursorBufferHandle:
+    BufferHandle<ReadBuffer = Self::CReadBuffer, WriteBuffer = Self::CWriteBuffer>
+{
+    type CReadBuffer: CursorReadBuffer;
+    type CWriteBuffer: CursorWriteBuffer;
+}
+
+impl<B> CursorBufferHandle for B
+where
+    B: BufferHandle,
+    B::ReadBuffer: CursorReadBuffer,
+    B::WriteBuffer: CursorWriteBuffer,
+{
+    type CReadBuffer = B::ReadBuffer;
+    type CWriteBuffer = B::WriteBuffer;
+}
+
 #[cfg(feature = "tests")]
 pub mod tests {
 
@@ -60,8 +77,7 @@ pub mod tests {
     pub async fn test_cursor<E>(editor: E)
     where
         E: Editor,
-        <E::BufferHandle as BufferHandle>::ReadBuffer: CursorReadBuffer,
-        <E::BufferHandle as BufferHandle>::WriteBuffer: CursorWriteBuffer,
+        E::BufferHandle: CursorBufferHandle,
     {
         let buffer = new_buffer_with_state(&editor, "|").await;
 
@@ -122,8 +138,7 @@ Second line"#,
     pub async fn test_cursor_append<E>(editor: E)
     where
         E: Editor,
-        <E::BufferHandle as BufferHandle>::ReadBuffer: CursorReadBuffer,
-        <E::BufferHandle as BufferHandle>::WriteBuffer: CursorWriteBuffer,
+        E::BufferHandle: CursorBufferHandle,
     {
         let buffer = new_buffer_with_state(
             &editor,
@@ -175,8 +190,7 @@ Third (3rd) test line
     pub async fn test_cursor_type_text<E>(editor: E)
     where
         E: Editor,
-        <E::BufferHandle as BufferHandle>::ReadBuffer: CursorReadBuffer,
-        <E::BufferHandle as BufferHandle>::WriteBuffer: CursorWriteBuffer,
+        E::BufferHandle: CursorBufferHandle,
     {
         let buffer = new_buffer_with_state(
             &editor,
@@ -219,8 +233,7 @@ Third line!"#
     pub async fn test_cursor_type_text_empty<E>(editor: E)
     where
         E: Editor,
-        <E::BufferHandle as BufferHandle>::ReadBuffer: CursorReadBuffer,
-        <E::BufferHandle as BufferHandle>::WriteBuffer: CursorWriteBuffer,
+        E::BufferHandle: CursorBufferHandle,
     {
         let buffer = new_buffer_with_state(&editor, "|").await;
 
