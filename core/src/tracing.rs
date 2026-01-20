@@ -1,4 +1,4 @@
-use tracing::{error, level_filters::LevelFilter};
+use tracing::{debug, error, level_filters::LevelFilter};
 use tracing_subscriber::{
     EnvFilter, Layer, Registry, layer::SubscriberExt, util::SubscriberInitExt,
 };
@@ -44,6 +44,11 @@ pub fn init_tracing(layers: impl Into<Vec<TracingLayer>>) {
         .with(layers)
         .with(env_filter)
         .init();
+
+    debug!("Tracing initialized");
+
+    #[cfg(feature = "tokio-console")]
+    debug!("Initialized with tokio-console");
 }
 
 pub trait ResultExt {
