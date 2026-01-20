@@ -12,6 +12,9 @@ pub use position::Position;
 
 pub mod buffer;
 
+mod complete_buffer;
+pub use complete_buffer::CompleteBufferHandle;
+
 #[cfg(feature = "cursor")]
 pub mod cursor;
 
