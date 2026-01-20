@@ -8,7 +8,7 @@ use crate::{async_dispatch::Dispatcher, error::Error as NvimError};
 
 use eel::{
     Position, Result,
-    buffer::{Buffer, BufferHandle, BufferReadLock, BufferWriteLock},
+    buffer::{BufferHandle, BufferReadLock, BufferWriteLock, ReadBuffer, WriteBuffer},
 };
 
 /// Represents a coordinate location within a Neovim buffer.
@@ -77,7 +77,7 @@ impl NvimBuffer {
 }
 
 #[async_trait]
-impl Buffer for NvimBuffer {
+impl ReadBuffer for NvimBuffer {
     async fn line_count(&self) -> Result<usize> {
         Ok(self.inner_buf().line_count().map_err(NvimError::from)?)
     }
@@ -103,7 +103,10 @@ impl Buffer for NvimBuffer {
 
         Ok(lines.into_iter())
     }
+}
 
+#[async_trait]
+impl WriteBuffer for NvimBuffer {
     async fn set_text(&mut self, start: &Position, end: &Position, text: &str) -> Result<()> {
         self.validate_pos(start).await?;
         self.validate_pos(end).await?;
@@ -160,12 +163,14 @@ impl NvimBufferHandle {
 }
 
 impl BufferHandle for NvimBufferHandle {
-    type Buffer = NvimBuffer;
+    type ReadBuffer = NvimBuffer;
+    type WriteBuffer = NvimBuffer;
 
     fn read(
         &self,
-    ) -> impl Future<Output = impl BufferReadLock<Buffer = Self::Buffer> + 'static> + Send + 'static
-    {
+    ) -> impl Future<Output = impl BufferReadLock<ReadBuffer = Self::ReadBuffer> + 'static>
+    + Send
+    + 'static {
         let lock = self.buffer_lock.clone();
         let id = self.id;
 
@@ -182,8 +187,9 @@ impl BufferHandle for NvimBufferHandle {
 
     fn write(
         &self,
-    ) -> impl Future<Output = impl BufferWriteLock<Buffer = Self::Buffer> + 'static> + Send + 'static
-    {
+    ) -> impl Future<Output = impl BufferWriteLock<WriteBuffer = Self::WriteBuffer> + 'static>
+    + Send
+    + 'static {
         let lock = self.buffer_lock.clone();
         let id = self.id;
 

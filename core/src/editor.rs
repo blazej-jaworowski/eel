@@ -1,16 +1,15 @@
 use async_trait::async_trait;
 
-use crate::{
-    Result,
-    buffer::{Buffer, BufferHandle},
-};
+use crate::{Result, buffer::BufferHandle};
 
 #[async_trait]
 pub trait Editor: Sized + Sync + Send + 'static {
-    type Buffer: Buffer;
-    type BufferHandle: BufferHandle<Buffer = Self::Buffer>;
+    type BufferHandle: BufferHandle;
 
     async fn current_buffer(&self) -> Result<Self::BufferHandle>;
     async fn new_buffer(&self) -> Result<Self::BufferHandle>;
-    async fn set_current_buffer(&self, buffer: &mut Self::Buffer) -> Result<()>;
+    async fn set_current_buffer(
+        &self,
+        buffer: &mut <Self::BufferHandle as BufferHandle>::WriteBuffer,
+    ) -> Result<()>;
 }

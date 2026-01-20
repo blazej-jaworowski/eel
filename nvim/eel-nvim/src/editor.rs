@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc, thread::ThreadId};
 use tokio::sync::RwLock;
 use tracing::trace;
 
-use eel::{Editor, Result};
+use eel::{Editor, Result, buffer::BufferHandle};
 
 use crate::{
     async_dispatch::Dispatcher,
@@ -78,7 +78,6 @@ impl NvimEditor {
 
 #[async_trait::async_trait]
 impl Editor for NvimEditor {
-    type Buffer = NvimBuffer;
     type BufferHandle = NvimBufferHandle;
 
     async fn current_buffer(&self) -> Result<NvimBufferHandle> {
@@ -87,7 +86,10 @@ impl Editor for NvimEditor {
         Ok(self.buffer_store.get_buffer_handle(buf).await)
     }
 
-    async fn set_current_buffer(&self, buffer: &mut Self::Buffer) -> Result<()> {
+    async fn set_current_buffer(
+        &self,
+        buffer: &mut <Self::BufferHandle as BufferHandle>::WriteBuffer,
+    ) -> Result<()> {
         let buf = buffer.inner_buf();
 
         Ok(self

@@ -1,5 +1,5 @@
 use crate::{
-    buffer::{Buffer, BufferHandle},
+    buffer::{BufferHandle, ReadBuffer, WriteBuffer},
     editor::Editor,
 };
 
@@ -15,24 +15,6 @@ macro_rules! assert_buffer_content {
             .await
             .expect("Failed to get buffer content");
         assert_eq!(content, $content)
-    }};
-}
-
-#[macro_export]
-macro_rules! assert_cursor_pos {
-    ($buffer:expr, $position:expr) => {{
-        let buffer = $buffer.read().await;
-        let actual_pos = buffer.get_cursor().await.expect("Failed to get cursor");
-        assert_eq!(actual_pos, $position, "Invalid cursor position");
-    }};
-}
-
-#[macro_export]
-macro_rules! assert_buffer_state {
-    ($buffer:expr, $state: expr) => {{
-        let (content, position) = $crate::test_utils::parse_buffer_state($state);
-        $crate::assert_buffer_content!($buffer, content);
-        $crate::assert_cursor_pos!($buffer, position);
     }};
 }
 
@@ -74,10 +56,28 @@ mod cursor {
     use super::*;
     use crate::{Position, cursor::CursorBuffer};
 
+    #[macro_export]
+    macro_rules! assert_cursor_pos {
+        ($buffer:expr, $position:expr) => {{
+            let buffer = $buffer.read().await;
+            let actual_pos = buffer.get_cursor().await.expect("Failed to get cursor");
+            assert_eq!(actual_pos, $position, "Invalid cursor position");
+        }};
+    }
+
+    #[macro_export]
+    macro_rules! assert_buffer_state {
+        ($buffer:expr, $state: expr) => {{
+            let (content, position) = $crate::test_utils::parse_buffer_state($state);
+            $crate::assert_buffer_content!($buffer, content);
+            $crate::assert_cursor_pos!($buffer, position);
+        }};
+    }
+
     pub async fn new_buffer_with_state<E>(editor: &E, state: &str) -> E::BufferHandle
     where
         E: Editor,
-        E::Buffer: CursorBuffer,
+        <E::BufferHandle as BufferHandle>::ReadBuffer: CursorReadBuffer,
     {
         let buffer = editor
             .new_buffer()
@@ -96,7 +96,7 @@ mod cursor {
     pub async fn set_buffer_state<B>(buffer: &B, state: &str)
     where
         B: BufferHandle,
-        B::Buffer: CursorBuffer,
+        B::WriteBuffer: CursorWriteBuffer,
     {
         let (content, position) = parse_buffer_state(state);
 
@@ -162,7 +162,6 @@ macro_rules! eel_tests {
         test_tag: $test_tag:path,
         editor_factory: $editor_factory:expr,
         editor_bounds: { $( $editor_bounds:tt )* },
-        buffer_bounds: { $( $buffer_bounds:tt )* },
         module_path: $module_path:path,
         prefix: $prefix:literal,
         test: $test_name:ident$(,)?
@@ -171,8 +170,8 @@ macro_rules! eel_tests {
             #[$test_tag(editor_factory = $editor_factory)]
             async fn [< $prefix $test_name >]<E>(editor: E)
             where
-                E: $crate::Editor + $( $editor_bounds )*,
-                E::Buffer: $crate::buffer::Buffer + $( $buffer_bounds )*
+                E: $crate::Editor,
+                $( $editor_bounds )*
             {
                 $module_path::$test_name(editor).await;
             }
@@ -183,7 +182,6 @@ macro_rules! eel_tests {
         test_tag: $test_tag:path,
         editor_factory: $editor_factory:expr,
         editor_bounds: $editor_bounds:tt,
-        buffer_bounds: $buffer_bounds:tt,
         module_path: $module_path:path,
         prefix: $prefix:literal,
         tests: [ $( $test_name:ident ),* $(,)? ],
@@ -193,7 +191,6 @@ macro_rules! eel_tests {
                 test_tag: $test_tag,
                 editor_factory: $editor_factory,
                 editor_bounds: $editor_bounds,
-                buffer_bounds: $buffer_bounds,
                 module_path: $module_path,
                 prefix: $prefix,
                 test: $test_name,

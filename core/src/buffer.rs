@@ -18,14 +18,12 @@ pub enum Error {
 }
 
 #[async_trait]
-pub trait Buffer: Send + Sync {
+pub trait ReadBuffer: Send + Sync {
     async fn line_count(&self) -> Result<usize>;
     async fn get_lines<R: RangeBounds<usize> + Send + 'static>(
         &self,
         range: R,
     ) -> Result<impl Iterator<Item = String> + Send>;
-
-    async fn set_text(&mut self, start: &Position, end: &Position, text: &str) -> Result<()>;
 
     async fn max_row(&self) -> Result<usize> {
         Ok(self.line_count().await? - 1)
@@ -85,6 +83,11 @@ pub trait Buffer: Send + Sync {
     async fn get_content(&self) -> Result<String> {
         Ok(self.get_all_lines().await?.join("\n"))
     }
+}
+
+#[async_trait]
+pub trait WriteBuffer: ReadBuffer {
+    async fn set_text(&mut self, start: &Position, end: &Position, text: &str) -> Result<()>;
 
     async fn set_content(&mut self, text: &str) -> Result<()> {
         self.set_text(&Position::origin(), &self.max_pos().await?, text)
@@ -130,37 +133,47 @@ pub trait Buffer: Send + Sync {
     }
 }
 
-pub trait BufferReadLock: std::ops::Deref<Target = Self::Buffer> + Sync + Send {
-    type Buffer: Buffer;
+pub trait BufferReadLock: std::ops::Deref<Target = Self::ReadBuffer> + Sync + Send {
+    type ReadBuffer: ReadBuffer;
 }
-pub trait BufferWriteLock: BufferReadLock + std::ops::DerefMut<Target = Self::Buffer> {}
+pub trait BufferWriteLock:
+    BufferReadLock<ReadBuffer = Self::WriteBuffer> + std::ops::DerefMut<Target = Self::WriteBuffer>
+{
+    type WriteBuffer: WriteBuffer;
+}
 
 impl<D, B> BufferReadLock for D
 where
-    B: Buffer,
+    B: ReadBuffer,
     D: std::ops::Deref<Target = B> + Sync + Send,
 {
-    type Buffer = B;
+    type ReadBuffer = B;
 }
 
 impl<B, D> BufferWriteLock for D
 where
-    B: Buffer,
-    D: BufferReadLock<Buffer = B>,
-    D: std::ops::DerefMut<Target = B> + Sync + Send,
+    B: WriteBuffer + ReadBuffer,
+    D: BufferReadLock<ReadBuffer = B>,
+    D: std::ops::DerefMut<Target = B>,
 {
+    type WriteBuffer = B;
 }
 
 pub trait BufferHandle: Eq + Clone + Send + Sync + 'static {
-    type Buffer: Buffer;
+    type ReadBuffer: ReadBuffer;
+    type WriteBuffer: WriteBuffer;
 
     fn read(
         &self,
-    ) -> impl Future<Output = impl BufferReadLock<Buffer = Self::Buffer> + 'static> + Send + 'static;
+    ) -> impl Future<Output = impl BufferReadLock<ReadBuffer = Self::ReadBuffer> + 'static>
+    + Send
+    + 'static;
 
     fn write(
         &self,
-    ) -> impl Future<Output = impl BufferWriteLock<Buffer = Self::Buffer> + 'static> + Send + 'static;
+    ) -> impl Future<Output = impl BufferWriteLock<WriteBuffer = Self::WriteBuffer> + 'static>
+    + Send
+    + 'static;
 }
 
 #[cfg(feature = "tests")]
@@ -592,7 +605,6 @@ Third line! :)"#
                 test_tag: $test_tag,
                 editor_factory: $editor_factory,
                 editor_bounds: {},
-                buffer_bounds: {},
                 module_path: $crate::buffer::tests,
                 prefix: $prefix,
                 tests: [
