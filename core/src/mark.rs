@@ -3,8 +3,6 @@ use std::{marker::PhantomData, sync::Arc};
 use async_trait::async_trait;
 use tracing::debug;
 
-// TODO: The generics here are yuck
-
 use crate::{
     Position, Result, async_runtime,
     buffer::{BufferHandle, BufferReadLock, BufferWriteLock, ReadBuffer, WriteBuffer},
@@ -27,12 +25,32 @@ pub trait MarkReadBuffer: ReadBuffer {
 }
 
 #[async_trait]
-pub trait MarkWriteBuffer: MarkReadBuffer {
+pub trait MarkWriteBuffer: MarkReadBuffer + WriteBuffer {
     async fn create_mark(&mut self, pos: &Position) -> Result<Self::MarkId>;
     async fn destroy_mark(&mut self, id: Self::MarkId) -> Result<()>;
 
     async fn set_mark_position(&mut self, id: Self::MarkId, pos: &Position) -> Result<()>;
     async fn set_mark_gravity(&mut self, id: Self::MarkId, gravity: Gravity) -> Result<()>;
+}
+
+pub trait MarkBufferHandle:
+    BufferHandle<ReadBuffer = Self::MReadBuffer, WriteBuffer = Self::MWriteBuffer>
+{
+    type MarkId: MarkId;
+    type MReadBuffer: MarkReadBuffer<MarkId = Self::MarkId>;
+    type MWriteBuffer: MarkWriteBuffer<MarkId = Self::MarkId>;
+}
+
+impl<B, I> MarkBufferHandle for B
+where
+    B: BufferHandle,
+    I: MarkId,
+    B::ReadBuffer: MarkReadBuffer<MarkId = I>,
+    B::WriteBuffer: MarkWriteBuffer<MarkId = I>,
+{
+    type MarkId = I;
+    type MReadBuffer = B::ReadBuffer;
+    type MWriteBuffer = B::WriteBuffer;
 }
 
 #[derive(Debug)]
@@ -78,67 +96,34 @@ where
     }
 }
 
-struct InnerMark<B>
-where
-    B: BufferHandle,
-    B::ReadBuffer: MarkReadBuffer,
-    B::WriteBuffer: MarkWriteBuffer<MarkId = <B::ReadBuffer as MarkReadBuffer>::MarkId>,
-{
-    id: <B::ReadBuffer as MarkReadBuffer>::MarkId,
+struct InnerMark<B: MarkBufferHandle> {
+    id: B::MarkId,
     buffer: B,
 }
 
-impl<B> Eq for InnerMark<B>
-where
-    B: BufferHandle,
-    B::ReadBuffer: MarkReadBuffer,
-    B::WriteBuffer: MarkWriteBuffer<MarkId = <B::ReadBuffer as MarkReadBuffer>::MarkId>,
-{
-}
+impl<B: MarkBufferHandle> Eq for InnerMark<B> {}
 
-impl<B> PartialEq for InnerMark<B>
-where
-    B: BufferHandle,
-    B::ReadBuffer: MarkReadBuffer,
-    B::WriteBuffer: MarkWriteBuffer<MarkId = <B::ReadBuffer as MarkReadBuffer>::MarkId>,
-{
+impl<B: MarkBufferHandle> PartialEq for InnerMark<B> {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id && self.buffer == other.buffer
     }
 }
 
-impl<B> std::fmt::Debug for InnerMark<B>
-where
-    B: BufferHandle,
-    B::ReadBuffer: MarkReadBuffer,
-    B::WriteBuffer: MarkWriteBuffer<MarkId = <B::ReadBuffer as MarkReadBuffer>::MarkId>,
-{
+impl<B: MarkBufferHandle> std::fmt::Debug for InnerMark<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InnerMark").field("id", &self.id).finish()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Mark<B, I>
-where
-    B: BufferHandle,
-    I: MarkId,
-    B::ReadBuffer: MarkReadBuffer<MarkId = I>,
-    B::WriteBuffer: MarkWriteBuffer<MarkId = I>,
-{
+pub struct Mark<B: MarkBufferHandle> {
     inner: Arc<InnerMark<B>>,
 }
 
-impl<B, I> Mark<B, I>
-where
-    B: BufferHandle,
-    I: MarkId,
-    B::ReadBuffer: MarkReadBuffer<MarkId = I>,
-    B::WriteBuffer: MarkWriteBuffer<MarkId = I>,
-{
+impl<B: MarkBufferHandle> Mark<B> {
     pub async fn new<Buf, L>(buffer: &B, position: &Position, mut buffer_lock: L) -> Result<Self>
     where
-        Buf: MarkWriteBuffer<MarkId = I>,
+        Buf: MarkWriteBuffer<MarkId = B::MarkId>,
         L: BufferWriteLock<WriteBuffer = Buf>,
     {
         // TODO: We should find a way to verify if we have a lock to the right buffer.
@@ -160,7 +145,7 @@ where
 
     pub fn read<'a, Buf, L>(&self, buffer_lock: L) -> MarkAccess<'a, L>
     where
-        Buf: MarkReadBuffer<MarkId = I>,
+        Buf: MarkReadBuffer<MarkId = B::MarkId>,
         L: BufferReadLock<ReadBuffer = Buf> + 'a,
     {
         MarkAccess {
@@ -184,7 +169,7 @@ where
 
     pub fn write<'a, Buf, L>(&self, buffer_lock: L) -> MarkAccess<'a, L>
     where
-        Buf: MarkWriteBuffer<MarkId = I>,
+        Buf: MarkWriteBuffer<MarkId = B::MarkId>,
         L: BufferWriteLock<WriteBuffer = Buf> + 'a,
     {
         MarkAccess {
@@ -211,12 +196,7 @@ where
     }
 }
 
-impl<B> Drop for InnerMark<B>
-where
-    B: BufferHandle,
-    B::ReadBuffer: MarkReadBuffer,
-    B::WriteBuffer: MarkWriteBuffer<MarkId = <B::ReadBuffer as MarkReadBuffer>::MarkId>,
-{
+impl<B: MarkBufferHandle> Drop for InnerMark<B> {
     fn drop(&mut self) {
         debug!("Destroying mark ({:?})", self.id);
 
@@ -244,10 +224,7 @@ pub mod tests {
     pub async fn test_mark_basic<E>(editor: E)
     where
         E: Editor,
-        <E::BufferHandle as BufferHandle>::ReadBuffer: MarkReadBuffer,
-        <E::BufferHandle as BufferHandle>::WriteBuffer: MarkWriteBuffer<
-            MarkId = <<E::BufferHandle as BufferHandle>::ReadBuffer as MarkReadBuffer>::MarkId,
-        >,
+        E::BufferHandle: MarkBufferHandle,
     {
         let buffer = new_buffer_with_content(&editor, "test\ntest2").await;
 
@@ -283,10 +260,7 @@ pub mod tests {
     pub async fn test_mark_set_text<E>(editor: E)
     where
         E: Editor,
-        <E::BufferHandle as BufferHandle>::ReadBuffer: MarkReadBuffer,
-        <E::BufferHandle as BufferHandle>::WriteBuffer: MarkWriteBuffer<
-            MarkId = <<E::BufferHandle as BufferHandle>::ReadBuffer as MarkReadBuffer>::MarkId,
-        >,
+        E::BufferHandle: MarkBufferHandle,
     {
         let buffer = new_buffer_with_content(&editor, "First line").await;
         let mut buffer_lock = buffer.write().await;
@@ -316,10 +290,7 @@ pub mod tests {
     pub async fn test_mark_gravity_right<E>(editor: E)
     where
         E: Editor,
-        <E::BufferHandle as BufferHandle>::ReadBuffer: MarkReadBuffer,
-        <E::BufferHandle as BufferHandle>::WriteBuffer: MarkWriteBuffer<
-            MarkId = <<E::BufferHandle as BufferHandle>::ReadBuffer as MarkReadBuffer>::MarkId,
-        >,
+        E::BufferHandle: MarkBufferHandle,
     {
         let buffer = new_buffer_with_content(&editor, "First line").await;
         let mut buffer_lock = buffer.write().await;
@@ -366,10 +337,7 @@ pub mod tests {
     pub async fn test_mark_gravity_left<E>(editor: E)
     where
         E: Editor,
-        <E::BufferHandle as BufferHandle>::ReadBuffer: MarkReadBuffer,
-        <E::BufferHandle as BufferHandle>::WriteBuffer: MarkWriteBuffer<
-            MarkId = <<E::BufferHandle as BufferHandle>::ReadBuffer as MarkReadBuffer>::MarkId,
-        >,
+        E::BufferHandle: MarkBufferHandle,
     {
         let buffer = new_buffer_with_content(&editor, "First line").await;
         let mut buffer_lock = buffer.write().await;
@@ -424,15 +392,7 @@ pub mod tests {
             $crate::eel_tests!(
                 test_tag: $test_tag,
                 editor_factory: $editor_factory,
-                editor_bounds: {
-                    <E::BufferHandle as $crate::buffer::BufferHandle>::ReadBuffer: $crate::mark::MarkReadBuffer,
-                    <E::BufferHandle as $crate::buffer::BufferHandle>::WriteBuffer:
-                        $crate::mark::MarkWriteBuffer<
-                            MarkId = <
-                                <E::BufferHandle as $crate::buffer::BufferHandle>::ReadBuffer as $crate::mark::MarkReadBuffer
-                            >::MarkId
-                        >,
-                },
+                editor_bounds: { E::BufferHandle: $crate::mark::MarkBufferHandle },
                 module_path: $crate::mark::tests,
                 prefix: $prefix,
                 tests: [
