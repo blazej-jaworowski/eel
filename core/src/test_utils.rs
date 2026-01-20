@@ -206,7 +206,7 @@ macro_rules! eel_tests {
         editor_factory: $editor_factory:expr,
         editor_bounds: { $( $editor_bounds:tt )* },
         module_path: $module_path:path,
-        prefix: $prefix:literal,
+        prefix: $prefix:tt,
         test: $test_name:ident$(,)?
     ) => {
         $crate::test_utils::paste! {
@@ -226,7 +226,7 @@ macro_rules! eel_tests {
         editor_factory: $editor_factory:expr,
         editor_bounds: $editor_bounds:tt,
         module_path: $module_path:path,
-        prefix: $prefix:literal,
+        prefix: $prefix:tt,
         tests: [ $( $test_name:ident ),* $(,)? ],
     ) => {
         $(

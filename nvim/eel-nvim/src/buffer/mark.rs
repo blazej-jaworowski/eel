@@ -79,8 +79,6 @@ impl MarkWriteBuffer for NvimBuffer {
     }
 
     async fn destroy_mark(&mut self, id: Self::MarkId) -> Result<()> {
-        // TODO: Return specific Error::Destroyed error when accessing destroyed mark
-
         let mut buf = self.inner_buf();
 
         self.dispatcher

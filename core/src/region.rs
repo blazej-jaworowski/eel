@@ -151,6 +151,9 @@ where
     L: WriteBufferLock<WriteBuffer = Buf> + 'a,
 {
     async fn set_text(&mut self, start: &Position, end: &Position, text: &str) -> Result<()> {
+        self.validate_pos(start).await?;
+        self.validate_pos(end).await?;
+
         let abs_start = self.translate_position(start).await?;
         let abs_end = self.translate_position(end).await?;
 
@@ -200,7 +203,10 @@ impl<B: MarkBufferHandle> BufferHandle for BufferRegion<B> {
 
 #[cfg(feature = "tests")]
 pub mod tests {
-    use crate::{Editor, test_utils::new_buffer_with_content};
+    use crate::{
+        Editor,
+        test_utils::{EditorFactory, new_buffer_with_content},
+    };
 
     use super::*;
 
@@ -446,9 +452,54 @@ Fourth line"#
         );
     }
 
+    pub struct RegionEditor<E: Editor> {
+        editor: E,
+    }
+
+    #[async_trait]
+    impl<E> Editor for RegionEditor<E>
+    where
+        E: Editor,
+        E::BufferHandle: MarkBufferHandle,
+    {
+        type BufferHandle = BufferRegion<E::BufferHandle>;
+
+        async fn new_buffer(&self) -> Result<Self::BufferHandle> {
+            let (_, region) = init_test_region(&self.editor).await;
+
+            region.write().await.set_content("").await?;
+
+            Ok(region)
+        }
+
+        // Not required for buffer tests
+
+        async fn current_buffer(&self) -> Result<Self::BufferHandle> {
+            unimplemented!()
+        }
+
+        async fn set_current_buffer(
+            &self,
+            _buffer: &mut <Self::BufferHandle as BufferHandle>::WriteBuffer,
+        ) -> Result<()> {
+            unimplemented!()
+        }
+    }
+
+    pub fn region_editor_factory<E: EditorFactory + 'static>(
+        editor_factory: E,
+    ) -> impl EditorFactory<Editor = RegionEditor<E::Editor>>
+    where
+        <E::Editor as Editor>::BufferHandle: MarkBufferHandle,
+    {
+        move || RegionEditor {
+            editor: editor_factory.create_editor(),
+        }
+    }
+
     #[macro_export]
     macro_rules! eel_region_tests {
-        ($test_tag:path, $editor_factory:expr, $prefix:literal) => {
+        ($test_tag:path, $editor_factory:expr, $prefix:tt) => {
             $crate::eel_tests!(
                 test_tag: $test_tag,
                 editor_factory: $editor_factory,
@@ -462,6 +513,14 @@ Fourth line"#
                     test_region_empty,
                 ],
             );
+
+            $crate::test_utils::paste! {
+                $crate::eel_buffer_tests!(
+                    $test_tag,
+                    $crate::region::tests::region_editor_factory($editor_factory),
+                    [< $prefix test_region_ >]
+                );
+            }
         };
 
         ($test_tag:path, $editor_factory:expr) => {

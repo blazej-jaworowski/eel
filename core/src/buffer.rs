@@ -593,7 +593,7 @@ Third line! :)"#
 
     #[macro_export]
     macro_rules! eel_buffer_tests {
-        ($test_tag:path, $editor_factory:expr, $prefix:literal) => {
+        ($test_tag:path, $editor_factory:expr, $prefix:tt) => {
             $crate::eel_tests!(
                 test_tag: $test_tag,
                 editor_factory: $editor_factory,
