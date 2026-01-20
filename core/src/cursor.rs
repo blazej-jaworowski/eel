@@ -1,10 +1,17 @@
 use async_trait::async_trait;
 
-use crate::{Position, Result, buffer::Buffer};
+use crate::{
+    Position, Result,
+    buffer::{ReadBuffer, WriteBuffer},
+};
 
 #[async_trait]
-pub trait CursorBuffer: Buffer {
+pub trait CursorReadBuffer: ReadBuffer {
     async fn get_cursor(&self) -> Result<Position>;
+}
+
+#[async_trait]
+pub trait CursorWriteBuffer: CursorReadBuffer + WriteBuffer {
     async fn set_cursor(&mut self, position: &Position) -> Result<()>;
 
     async fn append_at_cursor(&mut self, text: &str) -> Result<()> {
@@ -53,7 +60,8 @@ pub mod tests {
     pub async fn test_cursor<E>(editor: E)
     where
         E: Editor,
-        E::Buffer: CursorBuffer,
+        <E::BufferHandle as BufferHandle>::ReadBuffer: CursorReadBuffer,
+        <E::BufferHandle as BufferHandle>::WriteBuffer: CursorWriteBuffer,
     {
         let buffer = new_buffer_with_state(&editor, "|").await;
 
@@ -114,7 +122,8 @@ Second line"#,
     pub async fn test_cursor_append<E>(editor: E)
     where
         E: Editor,
-        E::Buffer: CursorBuffer,
+        <E::BufferHandle as BufferHandle>::ReadBuffer: CursorReadBuffer,
+        <E::BufferHandle as BufferHandle>::WriteBuffer: CursorWriteBuffer,
     {
         let buffer = new_buffer_with_state(
             &editor,
@@ -166,7 +175,8 @@ Third (3rd) test line
     pub async fn test_cursor_type_text<E>(editor: E)
     where
         E: Editor,
-        E::Buffer: CursorBuffer,
+        <E::BufferHandle as BufferHandle>::ReadBuffer: CursorReadBuffer,
+        <E::BufferHandle as BufferHandle>::WriteBuffer: CursorWriteBuffer,
     {
         let buffer = new_buffer_with_state(
             &editor,
@@ -209,7 +219,8 @@ Third line!"#
     pub async fn test_cursor_type_text_empty<E>(editor: E)
     where
         E: Editor,
-        E::Buffer: CursorBuffer,
+        <E::BufferHandle as BufferHandle>::ReadBuffer: CursorReadBuffer,
+        <E::BufferHandle as BufferHandle>::WriteBuffer: CursorWriteBuffer,
     {
         let buffer = new_buffer_with_state(&editor, "|").await;
 
@@ -229,8 +240,10 @@ Third line!"#
             $crate::eel_tests!(
                 test_tag: $test_tag,
                 editor_factory: $editor_factory,
-                editor_bounds: {},
-                buffer_bounds: { $crate::cursor::CursorBuffer },
+                editor_bounds: {
+                    <E::BufferHandle as $crate::buffer::BufferHandle>::ReadBuffer: $crate::cursor::CursorReadBuffer,
+                    <E::BufferHandle as $crate::buffer::BufferHandle>::WriteBuffer: $crate::cursor::CursorWriteBuffer,
+                },
                 module_path: $crate::cursor::tests,
                 prefix: $prefix,
                 tests: [

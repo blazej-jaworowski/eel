@@ -1,5 +1,5 @@
 use crate::{
-    buffer::{BufferHandle, ReadBuffer, WriteBuffer},
+    buffer::{BufferHandle, WriteBuffer},
     editor::Editor,
 };
 
@@ -9,6 +9,8 @@ pub use paste::paste;
 #[macro_export]
 macro_rules! assert_buffer_content {
     ($buffer:expr, $content:expr) => {{
+        use $crate::buffer::ReadBuffer as _;
+
         let buffer = $buffer.read().await;
         let content = buffer
             .get_content()
@@ -54,11 +56,16 @@ mod cursor {
     use itertools::Itertools as _;
 
     use super::*;
-    use crate::{Position, cursor::CursorBuffer};
+    use crate::{
+        Position,
+        cursor::{CursorReadBuffer, CursorWriteBuffer},
+    };
 
     #[macro_export]
     macro_rules! assert_cursor_pos {
         ($buffer:expr, $position:expr) => {{
+            use $crate::cursor::CursorReadBuffer as _;
+
             let buffer = $buffer.read().await;
             let actual_pos = buffer.get_cursor().await.expect("Failed to get cursor");
             assert_eq!(actual_pos, $position, "Invalid cursor position");
@@ -78,6 +85,7 @@ mod cursor {
     where
         E: Editor,
         <E::BufferHandle as BufferHandle>::ReadBuffer: CursorReadBuffer,
+        <E::BufferHandle as BufferHandle>::WriteBuffer: CursorWriteBuffer,
     {
         let buffer = editor
             .new_buffer()
@@ -96,6 +104,7 @@ mod cursor {
     pub async fn set_buffer_state<B>(buffer: &B, state: &str)
     where
         B: BufferHandle,
+        B::ReadBuffer: CursorReadBuffer,
         B::WriteBuffer: CursorWriteBuffer,
     {
         let (content, position) = parse_buffer_state(state);

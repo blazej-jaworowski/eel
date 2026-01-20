@@ -1,5 +1,9 @@
 use async_trait::async_trait;
-use eel::{Position, Result, buffer::Buffer, cursor::CursorBuffer};
+use eel::{
+    Position, Result,
+    buffer::ReadBuffer,
+    cursor::{CursorReadBuffer, CursorWriteBuffer},
+};
 
 use crate::{
     error::{Error as NvimError, IntoNvimResult as _},
@@ -30,7 +34,7 @@ impl NvimBuffer {
 }
 
 #[async_trait]
-impl CursorBuffer for NvimBuffer {
+impl CursorReadBuffer for NvimBuffer {
     async fn get_cursor(&self) -> Result<Position> {
         let position: Position = match self.get_window().await? {
             Some(w) => w.get_cursor().await?,
@@ -46,7 +50,10 @@ impl CursorBuffer for NvimBuffer {
             Ok(position)
         }
     }
+}
 
+#[async_trait]
+impl CursorWriteBuffer for NvimBuffer {
     async fn set_cursor(&mut self, position: &Position) -> Result<()> {
         self.validate_pos(position).await?;
 
