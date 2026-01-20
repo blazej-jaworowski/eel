@@ -4,29 +4,21 @@ use async_trait::async_trait;
 
 use crate::{
     Position, Result,
-    buffer::{Buffer, BufferHandle, BufferReadLock, BufferWriteLock},
-    mark::{Gravity, Mark, MarkBuffer},
+    buffer::{BufferHandle, BufferReadLock, BufferWriteLock, ReadBuffer, WriteBuffer},
+    mark::{Gravity, Mark, MarkBufferHandle, MarkReadBuffer},
 };
 
-pub struct BufferRegion<B>
-where
-    B: BufferHandle,
-    B::Buffer: MarkBuffer,
-{
+pub struct BufferRegion<B: MarkBufferHandle> {
     start: Mark<B>,
     end: Mark<B>,
 }
 
-impl<B> BufferRegion<B>
-where
-    B: BufferHandle,
-    B::Buffer: MarkBuffer,
-{
+impl<B: MarkBufferHandle> BufferRegion<B> {
     pub async fn new(
         buffer: &B,
         start: &Position,
         end: &Position,
-        mut buffer_lock: impl BufferWriteLock<Buffer = B::Buffer>,
+        mut buffer_lock: impl BufferWriteLock<WriteBuffer = B::WriteBuffer>,
     ) -> Result<Self> {
         let start = Mark::new(buffer, start, &mut *buffer_lock).await?;
         let end = Mark::new(buffer, end, &mut *buffer_lock).await?;
@@ -49,11 +41,15 @@ where
         Self::new(buffer, start, end, lock).await
     }
 
-    pub async fn translate_position(
+    pub async fn translate_position<L, Buf>(
         &self,
         pos: &Position,
-        buffer_lock: impl BufferReadLock<Buffer = B::Buffer>,
-    ) -> Result<Position> {
+        buffer_lock: L,
+    ) -> Result<Position>
+    where
+        Buf: MarkReadBuffer<MarkId = B::MarkId>,
+        L: BufferReadLock<ReadBuffer = Buf>,
+    {
         let start_pos = self.start.read(buffer_lock).get_position().await?;
 
         Ok(Position {
@@ -77,11 +73,7 @@ where
 }
 
 #[async_trait]
-impl<B> Buffer for BufferRegion<B>
-where
-    B: BufferHandle,
-    B::Buffer: MarkBuffer,
-{
+impl<B: MarkBufferHandle> ReadBuffer for BufferRegion<B> {
     async fn line_count(&self) -> Result<usize> {
         let buffer = self.get_buffer().read().await;
 
@@ -131,7 +123,10 @@ where
 
         Ok(lines.into_iter())
     }
+}
 
+#[async_trait]
+impl<B: MarkBufferHandle> WriteBuffer for BufferRegion<B> {
     async fn set_text(&mut self, start: &Position, end: &Position, text: &str) -> Result<()> {
         let mut buffer = self.get_buffer().write().await;
 
@@ -153,7 +148,7 @@ pub mod tests {
     async fn init_test_region<E>(editor: &E) -> (E::BufferHandle, BufferRegion<E::BufferHandle>)
     where
         E: Editor,
-        E::Buffer: MarkBuffer,
+        E::BufferHandle: MarkBufferHandle,
     {
         let buffer = new_buffer_with_content(
             editor,
@@ -174,7 +169,7 @@ Fourth line"#,
     pub async fn test_region_line_count<E>(editor: E)
     where
         E: Editor,
-        E::Buffer: MarkBuffer,
+        E::BufferHandle: MarkBufferHandle,
     {
         let (_, region) = init_test_region(&editor).await;
 
@@ -187,7 +182,7 @@ Fourth line"#,
     pub async fn test_region_get_lines<E>(editor: E)
     where
         E: Editor,
-        E::Buffer: MarkBuffer,
+        E::BufferHandle: MarkBufferHandle,
     {
         let (_, region) = init_test_region(&editor).await;
 
@@ -219,7 +214,7 @@ Fourth line"#,
     pub async fn test_region_set_text<E>(editor: E)
     where
         E: Editor,
-        E::Buffer: MarkBuffer,
+        E::BufferHandle: MarkBufferHandle,
     {
         let (buffer, mut region) = init_test_region(&editor).await;
 
@@ -304,7 +299,7 @@ Fourth line"#
     pub async fn test_region_empty<E>(editor: E)
     where
         E: Editor,
-        E::Buffer: MarkBuffer,
+        E::BufferHandle: MarkBufferHandle,
     {
         let buffer = new_buffer_with_content(
             &editor,
@@ -366,8 +361,7 @@ Fourth line"#
             $crate::eel_tests!(
                 test_tag: $test_tag,
                 editor_factory: $editor_factory,
-                editor_bounds: {},
-                buffer_bounds: { $crate::mark::MarkBuffer },
+                editor_bounds: { E::BufferHandle: $crate::mark::MarkBufferHandle },
                 module_path: $crate::region::tests,
                 prefix: $prefix,
                 tests: [
