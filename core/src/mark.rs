@@ -5,7 +5,7 @@ use tracing::debug;
 
 use crate::{
     Position, Result, async_runtime,
-    buffer::{BufferHandle, BufferReadLock, BufferWriteLock, ReadBuffer, WriteBuffer},
+    buffer::{BufferHandle, ReadBuffer, ReadBufferLock, WriteBuffer, WriteBufferLock},
     tracing::ResultExt,
 };
 
@@ -56,7 +56,7 @@ where
 #[derive(Debug)]
 pub struct MarkAccess<'a, L>
 where
-    L: BufferReadLock + 'a,
+    L: ReadBufferLock + 'a,
     L::ReadBuffer: MarkReadBuffer,
 {
     id: <L::ReadBuffer as MarkReadBuffer>::MarkId,
@@ -66,21 +66,17 @@ where
 
 impl<'a, L> MarkAccess<'a, L>
 where
-    L: BufferReadLock + 'a,
+    L: ReadBufferLock + 'a,
     L::ReadBuffer: MarkReadBuffer,
 {
     pub async fn get_position(&self) -> Result<Position> {
         self.buffer_lock.get_mark_position(self.id).await
     }
-
-    pub fn get_buffer(&self) -> &L::ReadBuffer {
-        &self.buffer_lock
-    }
 }
 
 impl<'a, L> MarkAccess<'a, L>
 where
-    L: BufferWriteLock + 'a,
+    L: WriteBufferLock + 'a,
     L::WriteBuffer: MarkWriteBuffer,
 {
     pub async fn set_position(&mut self, position: &Position) -> Result<()> {
@@ -89,10 +85,6 @@ where
 
     pub async fn set_gravity(&mut self, gravity: Gravity) -> Result<()> {
         self.buffer_lock.set_mark_gravity(self.id, gravity).await
-    }
-
-    pub fn get_buffer_mut(&mut self) -> &mut L::WriteBuffer {
-        &mut self.buffer_lock
     }
 }
 
@@ -124,7 +116,7 @@ impl<B: MarkBufferHandle> Mark<B> {
     pub async fn new<Buf, L>(buffer: &B, position: &Position, mut buffer_lock: L) -> Result<Self>
     where
         Buf: MarkWriteBuffer<MarkId = B::MarkId>,
-        L: BufferWriteLock<WriteBuffer = Buf>,
+        L: WriteBufferLock<WriteBuffer = Buf>,
     {
         // TODO: We should find a way to verify if we have a lock to the right buffer.
         //       The same applies to below methods.
@@ -146,7 +138,7 @@ impl<B: MarkBufferHandle> Mark<B> {
     pub fn read<'a, Buf, L>(&self, buffer_lock: L) -> MarkAccess<'a, L>
     where
         Buf: MarkReadBuffer<MarkId = B::MarkId>,
-        L: BufferReadLock<ReadBuffer = Buf> + 'a,
+        L: ReadBufferLock<ReadBuffer = Buf> + 'a,
     {
         MarkAccess {
             id: self.inner.id,
@@ -157,7 +149,7 @@ impl<B: MarkBufferHandle> Mark<B> {
 
     pub async fn lock_read(
         &self,
-    ) -> MarkAccess<'static, impl BufferReadLock<ReadBuffer = B::ReadBuffer> + 'static> {
+    ) -> MarkAccess<'static, impl ReadBufferLock<ReadBuffer = B::ReadBuffer> + 'static> {
         let lock = self.inner.buffer.read().await;
 
         MarkAccess {
@@ -170,7 +162,7 @@ impl<B: MarkBufferHandle> Mark<B> {
     pub fn write<'a, Buf, L>(&self, buffer_lock: L) -> MarkAccess<'a, L>
     where
         Buf: MarkWriteBuffer<MarkId = B::MarkId>,
-        L: BufferWriteLock<WriteBuffer = Buf> + 'a,
+        L: WriteBufferLock<WriteBuffer = Buf> + 'a,
     {
         MarkAccess {
             id: self.inner.id,
@@ -181,7 +173,7 @@ impl<B: MarkBufferHandle> Mark<B> {
 
     pub async fn lock_write(
         &self,
-    ) -> MarkAccess<'static, impl BufferWriteLock<WriteBuffer = B::WriteBuffer> + 'static> {
+    ) -> MarkAccess<'static, impl WriteBufferLock<WriteBuffer = B::WriteBuffer> + 'static> {
         let lock = self.inner.buffer.write().await;
 
         MarkAccess {
@@ -189,10 +181,6 @@ impl<B: MarkBufferHandle> Mark<B> {
             buffer_lock: lock,
             _marker: Default::default(),
         }
-    }
-
-    pub fn get_buffer(&self) -> &B {
-        &self.inner.buffer
     }
 }
 

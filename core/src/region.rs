@@ -1,16 +1,53 @@
-use std::ops::{Bound, RangeBounds};
+use std::{
+    marker::PhantomData,
+    ops::{Bound, RangeBounds},
+};
 
 use async_trait::async_trait;
 
 use crate::{
     Position, Result,
-    buffer::{BufferHandle, BufferReadLock, BufferWriteLock, ReadBuffer, WriteBuffer},
-    mark::{Gravity, Mark, MarkBufferHandle, MarkReadBuffer},
+    buffer::{BufferHandle, ReadBuffer, ReadBufferLock, WriteBuffer, WriteBufferLock},
+    mark::{Gravity, Mark, MarkBufferHandle, MarkReadBuffer, MarkWriteBuffer},
 };
 
+pub struct BufferRegionAccess<'a, B, Buf, L>
+where
+    B: MarkBufferHandle,
+    Buf: MarkReadBuffer<MarkId = B::MarkId>,
+    L: ReadBufferLock<ReadBuffer = Buf> + 'a,
+{
+    start: Mark<B>,
+    end: Mark<B>,
+    buffer_lock: L,
+    _mark: PhantomData<&'a ()>,
+}
+
+impl<'a, B, Buf, L> BufferRegionAccess<'a, B, Buf, L>
+where
+    B: MarkBufferHandle,
+    Buf: MarkReadBuffer<MarkId = B::MarkId>,
+    L: ReadBufferLock<ReadBuffer = Buf> + 'a,
+{
+    pub async fn translate_position(&self, pos: &Position) -> Result<Position> {
+        let start_pos = self.start.read(&*self.buffer_lock).get_position().await?;
+
+        Ok(Position {
+            row: start_pos.row + pos.row,
+            col: if pos.row == 0 {
+                start_pos.col + pos.col
+            } else {
+                pos.col
+            },
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BufferRegion<B: MarkBufferHandle> {
     start: Mark<B>,
     end: Mark<B>,
+    buffer: B,
 }
 
 impl<B: MarkBufferHandle> BufferRegion<B> {
@@ -18,7 +55,7 @@ impl<B: MarkBufferHandle> BufferRegion<B> {
         buffer: &B,
         start: &Position,
         end: &Position,
-        mut buffer_lock: impl BufferWriteLock<WriteBuffer = B::WriteBuffer>,
+        mut buffer_lock: impl WriteBufferLock<WriteBuffer = B::WriteBuffer>,
     ) -> Result<Self> {
         let start = Mark::new(buffer, start, &mut *buffer_lock).await?;
         let end = Mark::new(buffer, end, &mut *buffer_lock).await?;
@@ -32,7 +69,11 @@ impl<B: MarkBufferHandle> BufferRegion<B> {
             .set_gravity(Gravity::Right)
             .await?;
 
-        Ok(BufferRegion { start, end })
+        Ok(BufferRegion {
+            start,
+            end,
+            buffer: buffer.clone(),
+        })
     }
 
     pub async fn lock_new(buffer: &B, start: &Position, end: &Position) -> Result<Self> {
@@ -40,45 +81,19 @@ impl<B: MarkBufferHandle> BufferRegion<B> {
 
         Self::new(buffer, start, end, lock).await
     }
-
-    pub async fn translate_position<L, Buf>(
-        &self,
-        pos: &Position,
-        buffer_lock: L,
-    ) -> Result<Position>
-    where
-        Buf: MarkReadBuffer<MarkId = B::MarkId>,
-        L: BufferReadLock<ReadBuffer = Buf>,
-    {
-        let start_pos = self.start.read(buffer_lock).get_position().await?;
-
-        Ok(Position {
-            row: start_pos.row + pos.row,
-            col: if pos.row == 0 {
-                start_pos.col + pos.col
-            } else {
-                pos.col
-            },
-        })
-    }
-
-    pub async fn lock_translate_position(&self, pos: &Position) -> Result<Position> {
-        let lock = self.get_buffer().read().await;
-        self.translate_position(pos, lock).await
-    }
-
-    pub fn get_buffer(&self) -> &B {
-        self.start.get_buffer()
-    }
 }
 
 #[async_trait]
-impl<B: MarkBufferHandle> ReadBuffer for BufferRegion<B> {
+impl<'a, B, Buf, L> ReadBuffer for BufferRegionAccess<'a, B, Buf, L>
+where
+    B: MarkBufferHandle,
+    Buf: MarkReadBuffer<MarkId = B::MarkId>,
+    L: ReadBufferLock<ReadBuffer = Buf> + 'a,
+{
     async fn line_count(&self) -> Result<usize> {
-        let buffer = self.get_buffer().read().await;
+        let start = self.start.read(&*self.buffer_lock).get_position().await?;
 
-        let start = self.start.read(&*buffer).get_position().await?;
-        let end = self.end.read(&*buffer).get_position().await?;
+        let end = self.end.read(&*self.buffer_lock).get_position().await?;
 
         Ok(end.row - start.row + 1)
     }
@@ -87,12 +102,11 @@ impl<B: MarkBufferHandle> ReadBuffer for BufferRegion<B> {
         &self,
         range: R,
     ) -> Result<impl Iterator<Item = String> + Send> {
-        let buffer = self.get_buffer().read().await;
-
         let line_count = self.line_count().await?;
 
-        let start_pos = self.start.read(&*buffer).get_position().await?;
-        let end_pos = self.end.read(&*buffer).get_position().await?;
+        let start_pos = self.start.read(&*self.buffer_lock).get_position().await?;
+
+        let end_pos = self.end.read(&*self.buffer_lock).get_position().await?;
 
         let start_bound = match range.start_bound() {
             Bound::Included(i) => *i,
@@ -111,7 +125,11 @@ impl<B: MarkBufferHandle> ReadBuffer for BufferRegion<B> {
         let start_bound = start_bound + start_pos.row;
         let end_bound = end_bound + start_pos.row;
 
-        let mut lines: Vec<String> = buffer.get_lines(start_bound..end_bound).await?.collect();
+        let mut lines: Vec<String> = self
+            .buffer_lock
+            .get_lines(start_bound..end_bound)
+            .await?
+            .collect();
 
         if partial_last_line && let Some(l) = lines.last_mut() {
             l.truncate(end_pos.col);
@@ -126,14 +144,55 @@ impl<B: MarkBufferHandle> ReadBuffer for BufferRegion<B> {
 }
 
 #[async_trait]
-impl<B: MarkBufferHandle> WriteBuffer for BufferRegion<B> {
+impl<'a, B, Buf, L> WriteBuffer for BufferRegionAccess<'a, B, Buf, L>
+where
+    B: MarkBufferHandle,
+    Buf: MarkWriteBuffer<MarkId = B::MarkId>,
+    L: WriteBufferLock<WriteBuffer = Buf> + 'a,
+{
     async fn set_text(&mut self, start: &Position, end: &Position, text: &str) -> Result<()> {
-        let mut buffer = self.get_buffer().write().await;
+        let abs_start = self.translate_position(start).await?;
+        let abs_end = self.translate_position(end).await?;
 
-        let abs_start = self.translate_position(start, &*buffer).await?;
-        let abs_end = self.translate_position(end, &*buffer).await?;
+        self.buffer_lock.set_text(&abs_start, &abs_end, text).await
+    }
+}
 
-        buffer.set_text(&abs_start, &abs_end, text).await
+#[async_trait]
+impl<B: MarkBufferHandle> BufferHandle for BufferRegion<B> {
+    type ReadBuffer = BufferRegionAccess<'static, B, B::ReadBuffer, B::ReadBufferLock>;
+    type WriteBuffer = BufferRegionAccess<'static, B, B::WriteBuffer, B::WriteBufferLock>;
+    type ReadBufferLock = Box<Self::ReadBuffer>;
+    type WriteBufferLock = Box<Self::WriteBuffer>;
+
+    fn read(&self) -> impl Future<Output = Self::ReadBufferLock> + Send + 'static {
+        let buffer = self.buffer.clone();
+        let start = self.start.clone();
+        let end = self.end.clone();
+
+        async move {
+            Box::new(BufferRegionAccess {
+                start,
+                end,
+                buffer_lock: buffer.read().await,
+                _mark: Default::default(),
+            })
+        }
+    }
+
+    fn write(&self) -> impl Future<Output = Self::WriteBufferLock> + Send + 'static {
+        let buffer = self.buffer.clone();
+        let start = self.start.clone();
+        let end = self.end.clone();
+
+        async move {
+            Box::new(BufferRegionAccess {
+                start,
+                end,
+                buffer_lock: buffer.write().await,
+                _mark: Default::default(),
+            })
+        }
     }
 }
 
@@ -174,7 +233,12 @@ Fourth line"#,
         let (_, region) = init_test_region(&editor).await;
 
         assert_eq!(
-            region.line_count().await.expect("Failed to get line count"),
+            region
+                .read()
+                .await
+                .line_count()
+                .await
+                .expect("Failed to get line count"),
             2
         );
     }
@@ -185,6 +249,8 @@ Fourth line"#,
         E::BufferHandle: MarkBufferHandle,
     {
         let (_, region) = init_test_region(&editor).await;
+
+        let region = region.read().await;
 
         assert_eq!(
             region
@@ -216,15 +282,22 @@ Fourth line"#,
         E: Editor,
         E::BufferHandle: MarkBufferHandle,
     {
-        let (buffer, mut region) = init_test_region(&editor).await;
+        let (buffer, region) = init_test_region(&editor).await;
 
         region
+            .write()
+            .await
             .append(" line\nFourth line\nFifth")
             .await
             .expect("Failed to append");
 
         assert_eq!(
-            region.get_content().await.expect("Failed to get content"),
+            region
+                .read()
+                .await
+                .get_content()
+                .await
+                .expect("Failed to get content"),
             "cond line\nThird line\nFourth line\nFifth"
         );
 
@@ -244,12 +317,19 @@ Fourth line"#
         );
 
         region
+            .write()
+            .await
             .prepend("ll me on it\n")
             .await
             .expect("Failed to append");
 
         assert_eq!(
-            region.get_content().await.expect("Failed to get content"),
+            region
+                .read()
+                .await
+                .get_content()
+                .await
+                .expect("Failed to get content"),
             "ll me on it\ncond line\nThird line\nFourth line\nFifth"
         );
 
@@ -270,12 +350,19 @@ Fourth line"#
         );
 
         region
+            .write()
+            .await
             .set_line(1, "Second line")
             .await
             .expect("Failed to set line");
 
         assert_eq!(
-            region.get_content().await.expect("Failed to get content"),
+            region
+                .read()
+                .await
+                .get_content()
+                .await
+                .expect("Failed to get content"),
             "ll me on it\nSecond line\nThird line\nFourth line\nFifth"
         );
 
@@ -313,7 +400,9 @@ Fourth line"#,
         let mut region =
             BufferRegion::lock_new(&buffer, &Position::new(1, 11), &Position::new(1, 11))
                 .await
-                .expect("Failed to create region");
+                .expect("Failed to create region")
+                .write()
+                .await;
 
         assert_eq!(
             region.line_count().await.expect("Failed to get line count"),
@@ -339,6 +428,8 @@ Fourth line"#,
             region.line_count().await.expect("Failed to get line count"),
             2
         );
+
+        drop(region);
 
         assert_eq!(
             buffer
