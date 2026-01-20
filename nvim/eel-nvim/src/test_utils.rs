@@ -1,23 +1,27 @@
 use std::sync::{Arc, mpsc};
 
-use eel::Editor;
+use eel::{
+    Editor,
+    test_utils::{EditorFactory, EditorTest},
+};
 use tracing::debug;
 
 use crate::{editor::NvimEditor, lua::lua_get_global_path};
 
-pub fn run_nvim_async_test<E, EF, F, T, R>(test: T, editor_factory: EF) -> R
+pub fn run_nvim_async_test<E, EF, T, R>(test: T, editor_factory: EF) -> R
 where
     E: Editor,
-    EF: Fn() -> E,
+    EF: EditorFactory<Editor = E>,
+    T: EditorTest<E, R>,
     R: Send + 'static,
-    T: FnOnce(E) -> F,
-    F: Future<Output = R> + Send + 'static,
 {
     eel::tracing::init_tracing([eel::tracing::file_log_layer("/tmp/eel")]);
 
     eel::async_runtime::init_runtime().expect("Failed to initialize async runtime");
 
-    let test = test(editor_factory());
+    let editor = editor_factory.create_editor();
+    let test = test.run(editor);
+
     let (send, recv) = mpsc::channel();
 
     let test_handle = {

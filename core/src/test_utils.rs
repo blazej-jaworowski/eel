@@ -165,6 +165,40 @@ mod cursor {
 #[cfg(feature = "cursor")]
 pub use cursor::*;
 
+pub trait EditorFactory {
+    type Editor: Editor;
+
+    fn create_editor(&self) -> Self::Editor;
+}
+
+impl<F, E> EditorFactory for F
+where
+    E: Editor,
+    F: Fn() -> E,
+{
+    type Editor = E;
+
+    fn create_editor(&self) -> Self::Editor {
+        self()
+    }
+}
+
+pub trait EditorTest<E, R> {
+    fn run(self, editor: E) -> impl Future<Output = R> + Send + 'static;
+}
+
+impl<F, E, R, Fut> EditorTest<E, R> for F
+where
+    F: FnOnce(E) -> Fut,
+    Fut: Future<Output = R> + Send + 'static,
+    E: Editor,
+    R: Send + 'static,
+{
+    fn run(self, editor: E) -> impl Future<Output = R> + Send + 'static {
+        self(editor)
+    }
+}
+
 #[macro_export]
 macro_rules! eel_tests {
     (@test
