@@ -3,7 +3,7 @@ use nvim_oxi::api::opts::{GetExtmarkByIdOpts, SetExtmarkOpts};
 
 use eel::{
     Position, Result,
-    mark::{Gravity, MarkBuffer, MarkId},
+    mark::{Gravity, MarkId, MarkReadBuffer, MarkWriteBuffer},
 };
 
 use crate::{editor::get_eel_namespace, error::Error as NvimError, error::IntoNvimResult as _};
@@ -34,9 +34,30 @@ impl From<&NvimMarkId> for u32 {
 impl MarkId for NvimMarkId {}
 
 #[async_trait]
-impl MarkBuffer for NvimBuffer {
+impl MarkReadBuffer for NvimBuffer {
     type MarkId = NvimMarkId;
 
+    async fn get_mark_position(&self, id: Self::MarkId) -> Result<Position> {
+        let buf = self.inner_buf();
+
+        let (row, col, _) = self
+            .dispatcher
+            .dispatch(move || {
+                buf.get_extmark_by_id(
+                    get_eel_namespace(),
+                    id.into(),
+                    &GetExtmarkByIdOpts::default(),
+                )
+            })
+            .await?
+            .into_nvim()?;
+
+        Ok(Position::new(row, col))
+    }
+}
+
+#[async_trait]
+impl MarkWriteBuffer for NvimBuffer {
     async fn create_mark(&mut self, pos: &Position) -> Result<NvimMarkId> {
         let native_pos: NativePosition = pos.clone().into();
         let mut buf = self.inner_buf();
@@ -68,24 +89,6 @@ impl MarkBuffer for NvimBuffer {
             .into_nvim()?;
 
         Ok(())
-    }
-
-    async fn get_mark_position(&self, id: Self::MarkId) -> Result<Position> {
-        let buf = self.inner_buf();
-
-        let (row, col, _) = self
-            .dispatcher
-            .dispatch(move || {
-                buf.get_extmark_by_id(
-                    get_eel_namespace(),
-                    id.into(),
-                    &GetExtmarkByIdOpts::default(),
-                )
-            })
-            .await?
-            .into_nvim()?;
-
-        Ok(Position::new(row, col))
     }
     async fn set_mark_position(&mut self, id: Self::MarkId, pos: &Position) -> Result<()> {
         let native_pos: NativePosition = pos.clone().into();
