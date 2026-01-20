@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("AsyncRuntime error: {0}")]
@@ -7,7 +9,7 @@ pub enum Error {
     Buffer(#[from] crate::buffer::Error),
 
     #[error("Platform error: {0}")]
-    Platform(Box<dyn PlatformError>),
+    Platform(Arc<dyn PlatformError>),
 }
 
 pub type Result<R> = std::result::Result<R, Error>;
@@ -20,6 +22,6 @@ where
 
 impl<P: PlatformError> From<P> for Error {
     fn from(value: P) -> Self {
-        Error::Platform(Box::new(value))
+        Error::Platform(Arc::new(value))
     }
 }
