@@ -1,5 +1,8 @@
 use crate::buffer::{BufferHandle, ReadBuffer, WriteBuffer};
 
+#[cfg(feature = "mark")]
+use crate::mark::MarkId;
+
 #[cfg(feature = "cursor")]
 mod cursor {
     use crate::cursor::{CursorReadBuffer, CursorWriteBuffer};
@@ -67,6 +70,10 @@ pub trait CompleteBufferHandle:
         + mark::MarkWriteRequirement<RMarkId = Self::MarkId>
         + cursor::CursorWriteRequirement;
 
+    #[cfg(feature = "mark")]
+    type MarkId: MarkId;
+
+    #[cfg(not(feature = "mark"))]
     type MarkId;
 }
 
@@ -84,6 +91,7 @@ where
     type MarkId = <B::ReadBuffer as mark::MarkReadRequirement>::RMarkId;
 }
 
+#[cfg(feature = "tests")]
 mod static_tests {
     use crate::{CompleteBufferHandle, buffer::BufferHandle};
 

@@ -237,9 +237,31 @@ pub mod editor_factory;
 
 #[cfg(feature = "tests")]
 pub mod tests {
-    use crate::{Editor, assert_buffer_error, test_utils::new_buffer_with_content};
+    use crate::{
+        CompleteBufferHandle, Editor, assert_buffer_error, test_utils::new_buffer_with_content,
+    };
 
     use super::*;
+
+    fn _static_test_check_region_complete() {
+        // Check if BufferRegion implements CompleteBufferHandle
+
+        fn _check_trait<B>(_: B)
+        where
+            B: CompleteBufferHandle,
+        {
+        }
+
+        async fn _static_check<B>(buffer: B)
+        where
+            B: CompleteBufferHandle,
+        {
+            let region = BufferRegion::lock_new(&buffer, &Position::origin(), &Position::origin())
+                .await
+                .unwrap();
+            _check_trait(region);
+        }
+    }
 
     async fn init_test_region<E>(editor: &E) -> (E::BufferHandle, BufferRegion<E::BufferHandle>)
     where
