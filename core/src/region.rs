@@ -29,13 +29,26 @@ where
     Buf: MarkReadBuffer<MarkId = B::MarkId>,
     L: ReadBufferLock<ReadBuffer = Buf> + 'a,
 {
-    pub async fn translate_position(&self, pos: &Position) -> Result<Position> {
+    pub async fn real_position(&self, pos: &Position) -> Result<Position> {
         let start_pos = self.start.read(&*self.buffer_lock).get_position().await?;
 
         Ok(Position {
             row: start_pos.row + pos.row,
             col: if pos.row == 0 {
                 start_pos.col + pos.col
+            } else {
+                pos.col
+            },
+        })
+    }
+
+    pub async fn region_position(&self, pos: &Position) -> Result<Position> {
+        let start_pos = self.start.read(&*self.buffer_lock).get_position().await?;
+
+        Ok(Position {
+            row: pos.row - start_pos.row,
+            col: if pos.row == start_pos.row {
+                pos.col - start_pos.col
             } else {
                 pos.col
             },
@@ -154,12 +167,58 @@ where
         self.validate_pos(start).await?;
         self.validate_pos(end).await?;
 
-        let abs_start = self.translate_position(start).await?;
-        let abs_end = self.translate_position(end).await?;
+        let abs_start = self.real_position(start).await?;
+        let abs_end = self.real_position(end).await?;
 
         self.buffer_lock.set_text(&abs_start, &abs_end, text).await
     }
 }
+
+#[async_trait]
+impl<'a, B, Buf, L> MarkReadBuffer for BufferRegionAccess<'a, B, Buf, L>
+where
+    B: MarkBufferHandle,
+    Buf: MarkReadBuffer<MarkId = B::MarkId>,
+    L: ReadBufferLock<ReadBuffer = Buf> + 'a,
+{
+    type MarkId = B::MarkId;
+
+    async fn get_mark_position(&self, id: Self::MarkId) -> Result<Position> {
+        let pos = self.buffer_lock.get_mark_position(id).await?;
+
+        self.region_position(&pos).await
+    }
+}
+
+#[async_trait]
+impl<'a, B, Buf, L> MarkWriteBuffer for BufferRegionAccess<'a, B, Buf, L>
+where
+    B: MarkBufferHandle,
+    Buf: MarkWriteBuffer<MarkId = B::MarkId>,
+    L: WriteBufferLock<WriteBuffer = Buf> + 'a,
+{
+    async fn create_mark(&mut self, pos: &Position) -> Result<Self::MarkId> {
+        let pos = self.real_position(pos).await?;
+
+        self.buffer_lock.create_mark(&pos).await
+    }
+
+    async fn destroy_mark(&mut self, id: Self::MarkId) -> Result<()> {
+        self.buffer_lock.destroy_mark(id).await
+    }
+
+    async fn set_mark_position(&mut self, id: Self::MarkId, pos: &Position) -> Result<()> {
+        let pos = self.real_position(pos).await?;
+
+        self.buffer_lock.set_mark_position(id, &pos).await
+    }
+
+    async fn set_mark_gravity(&mut self, id: Self::MarkId, gravity: Gravity) -> Result<()> {
+        self.buffer_lock.set_mark_gravity(id, gravity).await
+    }
+}
+
+// TODO: Implement CursorBuffer trait
 
 #[async_trait]
 impl<B: MarkBufferHandle> BufferHandle for BufferRegion<B> {
@@ -198,8 +257,6 @@ impl<B: MarkBufferHandle> BufferHandle for BufferRegion<B> {
         }
     }
 }
-
-// TODO: Implement MarkBuffer and CursorBuffer traits
 
 #[cfg(feature = "tests")]
 pub mod tests {
@@ -516,6 +573,12 @@ Fourth line"#
 
             $crate::test_utils::paste! {
                 $crate::eel_buffer_tests!(
+                    $test_tag,
+                    $crate::region::tests::region_editor_factory($editor_factory),
+                    [< $prefix test_region_ >]
+                );
+
+                $crate::eel_mark_tests!(
                     $test_tag,
                     $crate::region::tests::region_editor_factory($editor_factory),
                     [< $prefix test_region_ >]
