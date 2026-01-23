@@ -32,19 +32,19 @@ mod tests {
     #[macro_export]
     #[cfg(not(feature = "cursor"))]
     macro_rules! eel_cursor_tests {
-        ($test_tag:path, $editor_factory:expr) => {};
+        ($test_tag:path, $editor_factory:expr $(, $_:tt)?) => {};
     }
 
     #[macro_export]
     #[cfg(not(feature = "mark"))]
     macro_rules! eel_mark_tests {
-        ($test_tag:path, $editor_factory:expr) => {};
+        ($test_tag:path, $editor_factory:expr $(, $_:tt)?) => {};
     }
 
     #[macro_export]
     #[cfg(not(feature = "region"))]
     macro_rules! eel_region_tests {
-        ($test_tag:path, $editor_factory:expr) => {};
+        ($test_tag:path, $editor_factory:expr $(, $_:tt)?) => {};
     }
 
     #[macro_export]
