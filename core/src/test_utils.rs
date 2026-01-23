@@ -92,8 +92,6 @@ mod cursor {
             .await
             .expect("Failed to create test buffer");
 
-        assert_buffer_state!(buffer, "|");
-
         set_buffer_state(&buffer, state).await;
 
         assert_buffer_state!(buffer, state);

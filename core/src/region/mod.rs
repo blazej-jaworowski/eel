@@ -45,14 +45,29 @@ where
     pub async fn region_position(&self, pos: &Position) -> Result<Position> {
         let start_pos = self.start.read(&*self.buffer_lock).get_position().await?;
 
-        Ok(Position {
-            row: pos.row - start_pos.row,
-            col: if pos.row == start_pos.row {
-                pos.col - start_pos.col
-            } else {
-                pos.col
-            },
-        })
+        let row: isize = pos.row as isize - start_pos.row as isize;
+        let col: isize = if pos.row == start_pos.row {
+            pos.col as isize - start_pos.col as isize
+        } else {
+            pos.col as isize
+        };
+
+        if row < 0 {
+            Err(crate::buffer::Error::RowOutOfBounds { row, limit: 0 })?;
+        }
+
+        if col < 0 {
+            Err(crate::buffer::Error::ColOutOfBounds { col, limit: 0 })?;
+        }
+
+        let pos = Position {
+            row: row as usize,
+            col: col as usize,
+        };
+
+        self.validate_pos(&pos).await?;
+
+        Ok(pos)
     }
 }
 
@@ -214,12 +229,15 @@ impl<B: MarkBufferHandle> BufferHandle for BufferRegion<B> {
 
 mod mark;
 
+#[cfg(feature = "cursor")]
+mod cursor;
+
 #[cfg(feature = "tests")]
 pub mod editor_factory;
 
 #[cfg(feature = "tests")]
 pub mod tests {
-    use crate::{Editor, test_utils::new_buffer_with_content};
+    use crate::{Editor, assert_buffer_error, test_utils::new_buffer_with_content};
 
     use super::*;
 
@@ -242,6 +260,78 @@ Fourth line"#,
             .expect("Failed to create region");
 
         (buffer, region)
+    }
+
+    pub async fn test_region_region_position<E>(editor: E)
+    where
+        E: Editor,
+        E::BufferHandle: MarkBufferHandle,
+    {
+        let (_, region) = init_test_region(&editor).await;
+
+        let region = region.read().await;
+
+        assert_eq!(
+            region
+                .region_position(&Position::new(2, 1))
+                .await
+                .expect("Failed to convert position"),
+            Position::new(1, 1)
+        );
+
+        assert_eq!(
+            region
+                .region_position(&Position::new(1, 3))
+                .await
+                .expect("Failed to convert position"),
+            Position::new(0, 1)
+        );
+
+        assert_buffer_error!(
+            region.region_position(&Position::new(1, 1)).await,
+            crate::Error::Buffer(crate::buffer::Error::ColOutOfBounds { col: -1, limit: 0 })
+        );
+
+        assert_buffer_error!(
+            region.region_position(&Position::new(2, 6)).await,
+            crate::Error::Buffer(crate::buffer::Error::ColOutOfBounds { col: 6, limit: 5 })
+        );
+
+        assert_buffer_error!(
+            region.region_position(&Position::new(0, 0)).await,
+            crate::Error::Buffer(crate::buffer::Error::RowOutOfBounds { row: -1, limit: 0 })
+        );
+
+        assert_buffer_error!(
+            region.region_position(&Position::new(3, 0)).await,
+            crate::Error::Buffer(crate::buffer::Error::RowOutOfBounds { row: 2, limit: 1 })
+        );
+    }
+
+    pub async fn test_region_real_position<E>(editor: E)
+    where
+        E: Editor,
+        E::BufferHandle: MarkBufferHandle,
+    {
+        let (_, region) = init_test_region(&editor).await;
+
+        let region = region.read().await;
+
+        assert_eq!(
+            region
+                .real_position(&Position::new(0, 3))
+                .await
+                .expect("Failed to convert position"),
+            Position::new(1, 5)
+        );
+
+        assert_eq!(
+            region
+                .real_position(&Position::new(1, 4))
+                .await
+                .expect("Failed to convert position"),
+            Position::new(2, 4)
+        );
     }
 
     pub async fn test_region_line_count<E>(editor: E)
@@ -479,6 +569,8 @@ Fourth line"#
                     test_region_get_lines,
                     test_region_set_text,
                     test_region_empty,
+                    test_region_region_position,
+                    test_region_real_position,
                 ],
             );
 
