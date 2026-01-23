@@ -10,6 +10,7 @@ use crate::{
 
 pub struct RegionEditor<E: Editor> {
     editor: E,
+    empty: bool,
 }
 
 #[async_trait]
@@ -23,15 +24,22 @@ where
     async fn new_buffer(&self) -> Result<Self::BufferHandle> {
         let buffer = new_buffer_with_content(
             &self.editor,
-            r#"First line
+            if self.empty {
+                ""
+            } else {
+                r#"First line
 Second line
 Third line
-Fourth line"#,
+Fourth line"#
+            },
         )
         .await;
 
-        let region =
-            BufferRegion::lock_new(&buffer, &Position::new(1, 2), &Position::new(2, 5)).await?;
+        let region = if self.empty {
+            BufferRegion::lock_new(&buffer, &Position::new(0, 0), &Position::new(0, 0)).await?
+        } else {
+            BufferRegion::lock_new(&buffer, &Position::new(1, 2), &Position::new(2, 5)).await?
+        };
 
         region.write().await.set_content("").await?;
 
@@ -54,11 +62,13 @@ Fourth line"#,
 
 pub fn region_editor_factory<E: EditorFactory + 'static>(
     editor_factory: E,
+    empty: bool,
 ) -> impl EditorFactory<Editor = RegionEditor<E::Editor>>
 where
     <E::Editor as Editor>::BufferHandle: MarkBufferHandle,
 {
     move || RegionEditor {
         editor: editor_factory.create_editor(),
+        empty,
     }
 }

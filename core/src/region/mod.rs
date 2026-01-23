@@ -577,14 +577,38 @@ Fourth line"#
             $crate::test_utils::paste! {
                 $crate::eel_buffer_tests!(
                     $test_tag,
-                    $crate::region::editor_factory::region_editor_factory($editor_factory),
+                    $crate::region::editor_factory::region_editor_factory($editor_factory, false),
                     [< $prefix test_region_ >]
                 );
 
                 $crate::eel_mark_tests!(
                     $test_tag,
-                    $crate::region::editor_factory::region_editor_factory($editor_factory),
+                    $crate::region::editor_factory::region_editor_factory($editor_factory, false),
                     [< $prefix test_region_ >]
+                );
+
+                $crate::eel_cursor_tests!(
+                    $test_tag,
+                    $crate::region::editor_factory::region_editor_factory($editor_factory, false),
+                    [< $prefix test_region_ >]
+                );
+
+                $crate::eel_buffer_tests!(
+                    $test_tag,
+                    $crate::region::editor_factory::region_editor_factory($editor_factory, true),
+                    [< $prefix test_region_empty_ >]
+                );
+
+                $crate::eel_mark_tests!(
+                    $test_tag,
+                    $crate::region::editor_factory::region_editor_factory($editor_factory, true),
+                    [< $prefix test_region_empty_ >]
+                );
+
+                $crate::eel_cursor_tests!(
+                    $test_tag,
+                    $crate::region::editor_factory::region_editor_factory($editor_factory, true),
+                    [< $prefix test_region_empty_ >]
                 );
             }
         };
