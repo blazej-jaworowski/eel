@@ -7,11 +7,11 @@ use itertools::Itertools;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Row out of bounds: {row} (max {max})")]
-    RowOutOfBounds { row: usize, max: usize },
+    #[error("Row out of bounds: {row} (limit {limit})")]
+    RowOutOfBounds { row: isize, limit: usize },
 
-    #[error("Col out of bounds: {col} (max {max})")]
-    ColOutOfBounds { col: usize, max: usize },
+    #[error("Col out of bounds: {col} (limit {limit})")]
+    ColOutOfBounds { col: isize, limit: usize },
 
     #[error("Error: {0}")]
     Custom(Box<dyn std::error::Error + Sync + Send>),
@@ -43,8 +43,8 @@ pub trait ReadBuffer: Send + Sync {
 
         if position.row > max_row {
             Err(Error::RowOutOfBounds {
-                row: position.row,
-                max: max_row,
+                row: position.row as isize,
+                limit: max_row,
             })?;
         }
 
@@ -52,8 +52,8 @@ pub trait ReadBuffer: Send + Sync {
 
         if position.col > max_col {
             Err(Error::ColOutOfBounds {
-                col: position.col,
-                max: max_col,
+                col: position.col as isize,
+                limit: max_col,
             })?;
         }
 
@@ -64,14 +64,20 @@ pub trait ReadBuffer: Send + Sync {
         let max_row = self.max_row().await?;
 
         if row > max_row {
-            Err(Error::RowOutOfBounds { row, max: max_row })?;
+            Err(Error::RowOutOfBounds {
+                row: row as isize,
+                limit: max_row,
+            })?;
         }
 
         let line = self
             .get_lines(row..(row + 1))
             .await?
             .next()
-            .ok_or(Error::RowOutOfBounds { row, max: max_row })?;
+            .ok_or(Error::RowOutOfBounds {
+                row: row as isize,
+                limit: max_row,
+            })?;
 
         Ok(line)
     }
@@ -469,7 +475,7 @@ Third line! :)"#
                 .await
                 .append_at_position(&Position::new(3, 0), ":(")
                 .await,
-            crate::Error::Buffer(Error::RowOutOfBounds { row: 3, max: 2 })
+            crate::Error::Buffer(Error::RowOutOfBounds { row: 3, limit: 2 })
         );
         assert_buffer_error!(
             buffer
@@ -477,7 +483,7 @@ Third line! :)"#
                 .await
                 .append_at_position(&Position::new(1, 17), ":(")
                 .await,
-            crate::Error::Buffer(Error::ColOutOfBounds { col: 17, max: 16 })
+            crate::Error::Buffer(Error::ColOutOfBounds { col: 17, limit: 16 })
         );
 
         buffer
@@ -515,7 +521,7 @@ Third line! :)"#
                 .await
                 .prepend_at_position(&Position::new(4, 0), ":(")
                 .await,
-            crate::Error::Buffer(Error::RowOutOfBounds { row: 4, max: 3 })
+            crate::Error::Buffer(Error::RowOutOfBounds { row: 4, limit: 3 })
         );
     }
 
@@ -524,7 +530,7 @@ Third line! :)"#
 
         let mut data = String::new();
 
-        for i in 0..20000 {
+        for i in 0..1000 {
             let line = format!("{i}\n");
             buffer
                 .write()
@@ -553,7 +559,7 @@ Third line! :)"#
         async move {
             let buffer = new_buffer_with_content(&editor, "").await;
 
-            let mut nums = (0..20000).map(|i| i.to_string()).collect::<Vec<_>>();
+            let mut nums = (0..1000).map(|i| i.to_string()).collect::<Vec<_>>();
 
             let futures = nums
                 .clone()

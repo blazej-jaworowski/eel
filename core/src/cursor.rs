@@ -121,17 +121,17 @@ Second line"#,
 
         assert_buffer_error!(
             buffer.write().await.set_cursor(&Position::new(2, 0)).await,
-            crate::Error::Buffer(crate::buffer::Error::RowOutOfBounds { row: 2, max: 1 })
+            crate::Error::Buffer(crate::buffer::Error::RowOutOfBounds { row: 2, limit: 1 })
         );
 
         assert_buffer_error!(
             buffer.write().await.set_cursor(&Position::new(1, 12)).await,
-            crate::Error::Buffer(crate::buffer::Error::ColOutOfBounds { col: 12, max: 11 })
+            crate::Error::Buffer(crate::buffer::Error::ColOutOfBounds { col: 12, limit: 11 })
         );
 
         assert_buffer_error!(
             buffer.write().await.set_cursor(&Position::new(0, 12)).await,
-            crate::Error::Buffer(crate::buffer::Error::ColOutOfBounds { col: 12, max: 10 })
+            crate::Error::Buffer(crate::buffer::Error::ColOutOfBounds { col: 12, limit: 10 })
         );
     }
 
