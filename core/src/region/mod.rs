@@ -175,52 +175,6 @@ where
 }
 
 #[async_trait]
-impl<'a, B, Buf, L> MarkReadBuffer for BufferRegionAccess<'a, B, Buf, L>
-where
-    B: MarkBufferHandle,
-    Buf: MarkReadBuffer<MarkId = B::MarkId>,
-    L: ReadBufferLock<ReadBuffer = Buf> + 'a,
-{
-    type MarkId = B::MarkId;
-
-    async fn get_mark_position(&self, id: Self::MarkId) -> Result<Position> {
-        let pos = self.buffer_lock.get_mark_position(id).await?;
-
-        self.region_position(&pos).await
-    }
-}
-
-#[async_trait]
-impl<'a, B, Buf, L> MarkWriteBuffer for BufferRegionAccess<'a, B, Buf, L>
-where
-    B: MarkBufferHandle,
-    Buf: MarkWriteBuffer<MarkId = B::MarkId>,
-    L: WriteBufferLock<WriteBuffer = Buf> + 'a,
-{
-    async fn create_mark(&mut self, pos: &Position) -> Result<Self::MarkId> {
-        let pos = self.real_position(pos).await?;
-
-        self.buffer_lock.create_mark(&pos).await
-    }
-
-    async fn destroy_mark(&mut self, id: Self::MarkId) -> Result<()> {
-        self.buffer_lock.destroy_mark(id).await
-    }
-
-    async fn set_mark_position(&mut self, id: Self::MarkId, pos: &Position) -> Result<()> {
-        let pos = self.real_position(pos).await?;
-
-        self.buffer_lock.set_mark_position(id, &pos).await
-    }
-
-    async fn set_mark_gravity(&mut self, id: Self::MarkId, gravity: Gravity) -> Result<()> {
-        self.buffer_lock.set_mark_gravity(id, gravity).await
-    }
-}
-
-// TODO: Implement CursorBuffer trait
-
-#[async_trait]
 impl<B: MarkBufferHandle> BufferHandle for BufferRegion<B> {
     type ReadBuffer = BufferRegionAccess<'static, B, B::ReadBuffer, B::ReadBufferLock>;
     type WriteBuffer = BufferRegionAccess<'static, B, B::WriteBuffer, B::WriteBufferLock>;
@@ -258,12 +212,14 @@ impl<B: MarkBufferHandle> BufferHandle for BufferRegion<B> {
     }
 }
 
+mod mark;
+
+#[cfg(feature = "tests")]
+pub mod editor_factory;
+
 #[cfg(feature = "tests")]
 pub mod tests {
-    use crate::{
-        Editor,
-        test_utils::{EditorFactory, new_buffer_with_content},
-    };
+    use crate::{Editor, test_utils::new_buffer_with_content};
 
     use super::*;
 
@@ -509,51 +465,6 @@ Fourth line"#
         );
     }
 
-    pub struct RegionEditor<E: Editor> {
-        editor: E,
-    }
-
-    #[async_trait]
-    impl<E> Editor for RegionEditor<E>
-    where
-        E: Editor,
-        E::BufferHandle: MarkBufferHandle,
-    {
-        type BufferHandle = BufferRegion<E::BufferHandle>;
-
-        async fn new_buffer(&self) -> Result<Self::BufferHandle> {
-            let (_, region) = init_test_region(&self.editor).await;
-
-            region.write().await.set_content("").await?;
-
-            Ok(region)
-        }
-
-        // Not required for buffer tests
-
-        async fn current_buffer(&self) -> Result<Self::BufferHandle> {
-            unimplemented!()
-        }
-
-        async fn set_current_buffer(
-            &self,
-            _buffer: &mut <Self::BufferHandle as BufferHandle>::WriteBuffer,
-        ) -> Result<()> {
-            unimplemented!()
-        }
-    }
-
-    pub fn region_editor_factory<E: EditorFactory + 'static>(
-        editor_factory: E,
-    ) -> impl EditorFactory<Editor = RegionEditor<E::Editor>>
-    where
-        <E::Editor as Editor>::BufferHandle: MarkBufferHandle,
-    {
-        move || RegionEditor {
-            editor: editor_factory.create_editor(),
-        }
-    }
-
     #[macro_export]
     macro_rules! eel_region_tests {
         ($test_tag:path, $editor_factory:expr, $prefix:tt) => {
@@ -574,13 +485,13 @@ Fourth line"#
             $crate::test_utils::paste! {
                 $crate::eel_buffer_tests!(
                     $test_tag,
-                    $crate::region::tests::region_editor_factory($editor_factory),
+                    $crate::region::editor_factory::region_editor_factory($editor_factory),
                     [< $prefix test_region_ >]
                 );
 
                 $crate::eel_mark_tests!(
                     $test_tag,
-                    $crate::region::tests::region_editor_factory($editor_factory),
+                    $crate::region::editor_factory::region_editor_factory($editor_factory),
                     [< $prefix test_region_ >]
                 );
             }
