@@ -310,7 +310,7 @@ dependencies = [
 
 [[package]]
 name = "eel"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "console-subscriber",
@@ -325,7 +325,7 @@ dependencies = [
 
 [[package]]
 name = "eel-nvim"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "derivative",
@@ -342,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "eel-nvim-macros"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "deluxe",
  "proc-macro2",
