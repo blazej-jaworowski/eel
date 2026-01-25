@@ -8,7 +8,7 @@ use tracing::debug;
 
 use crate::{editor::NvimEditor, lua::lua_get_global_path};
 
-pub fn run_nvim_async_test<E, EF, T, R>(test: T, editor_factory: EF) -> R
+pub fn run_nvim_test<E, EF, T, R>(test: T, editor_factory: EF) -> R
 where
     E: Editor,
     EF: EditorFactory<Editor = E>,
@@ -17,18 +17,15 @@ where
 {
     eel::tracing::init_tracing([eel::tracing::file_log_layer("/tmp/eel")]);
 
-    eel::async_runtime::init_runtime().expect("Failed to initialize async runtime");
-
     let editor = editor_factory.create_editor();
-    let test = test.run(editor);
 
     let (send, recv) = mpsc::channel();
 
     let test_handle = {
-        eel::async_runtime::spawn(async move {
-            debug!("Running test future");
+        std::thread::spawn(move || {
+            debug!("Running test");
 
-            let result = test.await;
+            let result = test.run(editor);
 
             debug!("Test successfully finished");
 
@@ -51,10 +48,6 @@ where
     let wait_result: bool = wait_func
         .call((1000, cond_func))
         .expect("Failed to call vim.wait");
-
-    if !wait_result {
-        test_handle.abort();
-    }
 
     assert!(wait_result, "Test timed out");
 

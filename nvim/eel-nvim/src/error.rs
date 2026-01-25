@@ -1,6 +1,6 @@
 use eel::error::PlatformError;
 
-use crate::async_dispatch;
+use crate::dispatcher;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -13,8 +13,8 @@ pub enum Error {
     #[error("Nvim MLua error: {0}")]
     MLua(String),
 
-    #[error("Async dispatch error: {0}")]
-    AsyncDispatch(#[from] async_dispatch::Error),
+    #[error("Dispatcher error: {0}")]
+    Dispatcher(#[from] dispatcher::Error),
 }
 
 impl From<nvim_oxi::mlua::Error> for Error {

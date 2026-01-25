@@ -3,10 +3,7 @@ use std::sync::Arc;
 use tracing::{Level, level_filters::LevelFilter};
 use tracing_subscriber::{Layer, filter::Targets, fmt::MakeWriter};
 
-use eel::{
-    async_runtime,
-    tracing::{ResultExt, TracingLayer},
-};
+use eel::tracing::{ResultExt, TracingLayer};
 
 use nvim_oxi::api as nvim_api;
 
@@ -36,13 +33,12 @@ impl std::io::Write for NvimIoWriter {
         };
 
         let editor = self.editor.clone();
-        async_runtime::spawn(async move {
+        std::thread::spawn(move || {
             editor
                 .dispatch(move || {
                     nvim_api::echo([(message, highlight)], false, &Default::default())?;
                     nvim_api::command("redraw")
                 })
-                .await
                 .log_err_msg("Failed to dispatch log echo")?
                 .into_nvim()
                 .log_err_msg("Log echo failed")?;
@@ -84,8 +80,8 @@ impl NvimMakeWriter {
 pub fn nvim_msg_layer(editor: Arc<NvimEditor>) -> TracingLayer {
     let targets = Targets::new()
         .with_default(Level::WARN)
-        .with_target("nvim_api_helper::nvim::tracing", LevelFilter::OFF)
-        .with_target("nvim_api_helper::nvim::async_dispatch", LevelFilter::OFF);
+        .with_target("eel_nvim::tracing", LevelFilter::OFF)
+        .with_target("eel_nvim::dispatcher", LevelFilter::OFF);
 
     let layer = tracing_subscriber::fmt::layer()
         .with_writer(NvimMakeWriter::new(editor))

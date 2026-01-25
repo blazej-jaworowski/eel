@@ -2,9 +2,6 @@ use std::sync::Arc;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("AsyncRuntime error: {0}")]
-    AsyncRuntime(#[from] crate::async_runtime::Error),
-
     #[error("Buffer error: {0}")]
     Buffer(#[from] crate::buffer::Error),
 

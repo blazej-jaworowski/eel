@@ -36,7 +36,7 @@ pub fn nvim_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         #[::nvim_oxi::test]
         fn #test_ident() #return_type {
             let editor_factory = #editor_factory;
-            crate::test_utils::run_nvim_async_test(#new_ident, editor_factory)
+            crate::test_utils::run_nvim_test(#new_ident, editor_factory)
         }
     }
     .into()

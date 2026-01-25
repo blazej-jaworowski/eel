@@ -1,7 +1,5 @@
 use std::{rc::Rc, sync::mpsc, thread::ThreadId};
 
-use futures::{TryFutureExt, future::Either};
-use tokio::sync::oneshot;
 use tracing::{error, trace};
 
 use crate::error::Error as NvimError;
@@ -18,10 +16,7 @@ pub enum Error {
     FuncSend,
 
     #[error("Result receive error: {0}")]
-    ResultRecv(#[from] oneshot::error::RecvError),
-
-    #[error("Tokio task join error: {0}")]
-    TaskJoin(#[from] tokio::task::JoinError),
+    ResultRecv(#[from] mpsc::RecvError),
 }
 
 pub struct Dispatcher {
@@ -84,7 +79,7 @@ impl Dispatcher {
         })
     }
 
-    fn inner_dispatch<F, R>(&self, func: F) -> impl Future<Output = std::result::Result<R, Error>>
+    fn inner_dispatch<F, R>(&self, func: F) -> std::result::Result<R, Error>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -92,10 +87,10 @@ impl Dispatcher {
         if std::thread::current().id() == self.nvim_thread_id {
             trace!("Dispatch called from nvim thread");
 
-            return Either::Left(std::future::ready(Ok(func())));
+            return Ok(func());
         }
 
-        let (result_tx, result_rx) = oneshot::channel::<R>();
+        let (result_tx, result_rx) = mpsc::sync_channel::<R>(1);
 
         let nvim_tid = self.nvim_thread_id;
         let dispatch_func = Box::new(move || {
@@ -118,27 +113,25 @@ impl Dispatcher {
         trace!("Sending function to dispatch");
 
         if self.func_tx.send(dispatch_func).is_err() {
-            return Either::Left(std::future::ready(Err(Error::FuncSend)));
+            return Err(Error::FuncSend);
         }
 
         trace!("Calling async handle");
 
         if let Err(e) = self.async_handle.send() {
-            return Either::Left(std::future::ready(Err(e.into())));
+            return Err(e.into());
         }
 
-        Either::Right(async {
-            trace!("Awaiting result");
+        trace!("Awaiting result");
 
-            let result = result_rx.await?;
+        let result = result_rx.recv()?;
 
-            trace!("Result received");
+        trace!("Result received");
 
-            Ok::<_, Error>(result)
-        })
+        Ok::<_, Error>(result)
     }
 
-    pub fn dispatch<F, R>(&self, func: F) -> impl Future<Output = Result<R>>
+    pub fn dispatch<F, R>(&self, func: F) -> Result<R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,

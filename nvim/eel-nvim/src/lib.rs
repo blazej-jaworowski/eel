@@ -5,7 +5,7 @@ pub mod buffer;
 pub mod editor;
 pub mod window;
 
-pub mod async_dispatch;
+pub mod dispatcher;
 pub mod lua;
 
 pub use nvim_oxi;

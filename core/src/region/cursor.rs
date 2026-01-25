@@ -1,5 +1,3 @@
-use async_trait::async_trait;
-
 use crate::{
     Position, Result,
     buffer::{ReadBuffer, ReadBufferLock, WriteBufferLock},
@@ -8,7 +6,6 @@ use crate::{
     region::BufferRegionAccess,
 };
 
-#[async_trait]
 impl<'a, B, Buf, L> CursorReadBuffer for BufferRegionAccess<'a, B, Buf, L>
 where
     B: MarkBufferHandle,
@@ -16,14 +13,13 @@ where
     Buf: CursorReadBuffer,
     L: ReadBufferLock<ReadBuffer = Buf> + 'a,
 {
-    async fn get_cursor(&self) -> Result<Position> {
-        let pos = self.buffer_lock.get_cursor().await?;
+    fn get_cursor(&self) -> Result<Position> {
+        let pos = self.buffer_lock.get_cursor()?;
 
-        self.region_position(&pos).await
+        self.region_position(&pos)
     }
 }
 
-#[async_trait]
 impl<'a, B, Buf, L> CursorWriteBuffer for BufferRegionAccess<'a, B, Buf, L>
 where
     B: MarkBufferHandle,
@@ -31,11 +27,11 @@ where
     Buf: CursorWriteBuffer,
     L: WriteBufferLock<WriteBuffer = Buf> + 'a,
 {
-    async fn set_cursor(&mut self, position: &Position) -> Result<()> {
-        self.validate_pos(position).await?;
+    fn set_cursor(&mut self, position: &Position) -> Result<()> {
+        self.validate_pos(position)?;
 
-        let pos = self.real_position(position).await?;
+        let pos = self.real_position(position)?;
 
-        self.buffer_lock.set_cursor(&pos).await
+        self.buffer_lock.set_cursor(&pos)
     }
 }

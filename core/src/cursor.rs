@@ -1,49 +1,42 @@
-use async_trait::async_trait;
-
 use crate::{
     Position, Result,
     buffer::{BufferHandle, ReadBuffer, WriteBuffer},
 };
 
-#[async_trait]
 pub trait CursorReadBuffer: ReadBuffer {
-    async fn get_cursor(&self) -> Result<Position>;
+    fn get_cursor(&self) -> Result<Position>;
 }
 
-#[async_trait]
 pub trait CursorWriteBuffer: CursorReadBuffer + WriteBuffer {
-    async fn set_cursor(&mut self, position: &Position) -> Result<()>;
+    fn set_cursor(&mut self, position: &Position) -> Result<()>;
 
-    async fn append_at_cursor(&mut self, text: &str) -> Result<()> {
-        self.append_at_position(&self.get_cursor().await?, text)
-            .await
+    fn append_at_cursor(&mut self, text: &str) -> Result<()> {
+        self.append_at_position(&self.get_cursor()?, text)
     }
 
-    async fn prepend_at_cursor(&mut self, text: &str) -> Result<()> {
-        self.prepend_at_position(&self.get_cursor().await?, text)
-            .await
+    fn prepend_at_cursor(&mut self, text: &str) -> Result<()> {
+        self.prepend_at_position(&self.get_cursor()?, text)
     }
 
-    async fn type_text(&mut self, text: &str) -> Result<()> {
+    fn type_text(&mut self, text: &str) -> Result<()> {
         if text.is_empty() {
             return Ok(());
         }
 
-        let position = self.get_cursor().await?;
+        let position = self.get_cursor()?;
         let max_text_pos = Position::max_text_pos(text);
 
         let next_position = position.clone().next_col();
 
-        let position = if self.validate_pos(&next_position).await.is_ok() {
+        let position = if self.validate_pos(&next_position).is_ok() {
             next_position
         } else {
             position
         };
 
-        self.prepend_at_position(&position, text).await?;
+        self.prepend_at_position(&position, text)?;
 
         self.set_cursor(&position.offset(&max_text_pos).prev_col())
-            .await
     }
 }
 
@@ -74,12 +67,12 @@ pub mod tests {
 
     use super::*;
 
-    pub async fn test_cursor<E>(editor: E)
+    pub fn test_cursor<E>(editor: E)
     where
         E: Editor,
         E::BufferHandle: CursorBufferHandle,
     {
-        let buffer = new_buffer_with_state(&editor, "|").await;
+        let buffer = new_buffer_with_state(&editor, "|");
 
         assert_cursor_pos!(buffer, Position::new(0, 0));
 
@@ -87,55 +80,48 @@ pub mod tests {
             &editor,
             r#"|First line
 Second line"#,
-        )
-        .await;
+        );
 
         assert_cursor_pos!(buffer, Position::new(0, 0));
 
         buffer
             .write()
-            .await
             .set_cursor(&Position::new(1, 4))
-            .await
             .expect("Failed to set cursor");
 
         assert_cursor_pos!(buffer, Position::new(1, 4));
 
         buffer
             .write()
-            .await
             .set_cursor(&Position::new(0, 0))
-            .await
             .expect("Failed to set cursor");
 
         assert_cursor_pos!(buffer, Position::new(0, 0));
 
         buffer
             .write()
-            .await
             .set_cursor(&Position::new(1, 11))
-            .await
             .expect("Failed to set cursor");
 
         assert_cursor_pos!(buffer, Position::new(1, 11));
 
         assert_buffer_error!(
-            buffer.write().await.set_cursor(&Position::new(2, 0)).await,
+            buffer.write().set_cursor(&Position::new(2, 0)),
             crate::Error::Buffer(crate::buffer::Error::RowOutOfBounds { row: 2, limit: 1 })
         );
 
         assert_buffer_error!(
-            buffer.write().await.set_cursor(&Position::new(1, 12)).await,
+            buffer.write().set_cursor(&Position::new(1, 12)),
             crate::Error::Buffer(crate::buffer::Error::ColOutOfBounds { col: 12, limit: 11 })
         );
 
         assert_buffer_error!(
-            buffer.write().await.set_cursor(&Position::new(0, 12)).await,
+            buffer.write().set_cursor(&Position::new(0, 12)),
             crate::Error::Buffer(crate::buffer::Error::ColOutOfBounds { col: 12, limit: 10 })
         );
     }
 
-    pub async fn test_cursor_append<E>(editor: E)
+    pub fn test_cursor_append<E>(editor: E)
     where
         E: Editor,
         E::BufferHandle: CursorBufferHandle,
@@ -146,14 +132,11 @@ Second line"#,
 Second line
 Third| line
 "#,
-        )
-        .await;
+        );
 
         buffer
             .write()
-            .await
             .append_at_cursor("test ")
-            .await
             .expect("Failed to append at cursor");
 
         assert_buffer_content!(
@@ -166,16 +149,12 @@ Third test line
 
         buffer
             .write()
-            .await
             .set_cursor(&Position::new(2, 6))
-            .await
             .expect("Failed to set cursor");
 
         buffer
             .write()
-            .await
             .prepend_at_cursor("(3rd) ")
-            .await
             .expect("Failed to prepend at cursor");
 
         assert_buffer_content!(
@@ -187,7 +166,7 @@ Third (3rd) test line
         );
     }
 
-    pub async fn test_cursor_type_text<E>(editor: E)
+    pub fn test_cursor_type_text<E>(editor: E)
     where
         E: Editor,
         E::BufferHandle: CursorBufferHandle,
@@ -197,14 +176,11 @@ Third (3rd) test line
             r#"First line
 Second| line
 Third line!"#,
-        )
-        .await;
+        );
 
         buffer
             .write()
-            .await
             .type_text("test ")
-            .await
             .expect("Failed to type text");
 
         assert_buffer_state!(
@@ -216,9 +192,7 @@ Third line!"#
 
         buffer
             .write()
-            .await
             .type_text("test\n")
-            .await
             .expect("Failed to type text");
 
         assert_buffer_state!(
@@ -230,18 +204,16 @@ Third line!"#
         );
     }
 
-    pub async fn test_cursor_type_text_empty<E>(editor: E)
+    pub fn test_cursor_type_text_empty<E>(editor: E)
     where
         E: Editor,
         E::BufferHandle: CursorBufferHandle,
     {
-        let buffer = new_buffer_with_state(&editor, "|").await;
+        let buffer = new_buffer_with_state(&editor, "|");
 
         buffer
             .write()
-            .await
             .type_text("test")
-            .await
             .expect("Failed to type text");
 
         assert_buffer_state!(buffer, r#"tes|t"#);

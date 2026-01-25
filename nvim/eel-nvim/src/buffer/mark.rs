@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use nvim_oxi::api::opts::{GetExtmarkByIdOpts, SetExtmarkOpts};
 
 use eel::{
@@ -33,11 +32,10 @@ impl From<&NvimMarkId> for u32 {
 
 impl MarkId for NvimMarkId {}
 
-#[async_trait]
 impl MarkReadBuffer for NvimBuffer {
     type MarkId = NvimMarkId;
 
-    async fn get_mark_position(&self, id: Self::MarkId) -> Result<Position> {
+    fn get_mark_position(&self, id: Self::MarkId) -> Result<Position> {
         let buf = self.inner_buf();
 
         let (row, col, _) = self
@@ -48,17 +46,15 @@ impl MarkReadBuffer for NvimBuffer {
                     id.into(),
                     &GetExtmarkByIdOpts::default(),
                 )
-            })
-            .await?
+            })?
             .into_nvim()?;
 
         Ok(Position::new(row, col))
     }
 }
 
-#[async_trait]
 impl MarkWriteBuffer for NvimBuffer {
-    async fn create_mark(&mut self, pos: &Position) -> Result<NvimMarkId> {
+    fn create_mark(&mut self, pos: &Position) -> Result<NvimMarkId> {
         let native_pos: NativePosition = pos.clone().into();
         let mut buf = self.inner_buf();
 
@@ -71,24 +67,22 @@ impl MarkWriteBuffer for NvimBuffer {
                     native_pos.col - 1,
                     &SetExtmarkOpts::default(),
                 )
-            })
-            .await?
+            })?
             .into_nvim()?;
 
         Ok(extmark_id.into())
     }
 
-    async fn destroy_mark(&mut self, id: Self::MarkId) -> Result<()> {
+    fn destroy_mark(&mut self, id: Self::MarkId) -> Result<()> {
         let mut buf = self.inner_buf();
 
         self.dispatcher
-            .dispatch(move || buf.del_extmark(get_eel_namespace(), id.into()))
-            .await?
+            .dispatch(move || buf.del_extmark(get_eel_namespace(), id.into()))?
             .into_nvim()?;
 
         Ok(())
     }
-    async fn set_mark_position(&mut self, id: Self::MarkId, pos: &Position) -> Result<()> {
+    fn set_mark_position(&mut self, id: Self::MarkId, pos: &Position) -> Result<()> {
         let native_pos: NativePosition = pos.clone().into();
         let mut buf = self.inner_buf();
 
@@ -100,40 +94,37 @@ impl MarkWriteBuffer for NvimBuffer {
                     native_pos.col - 1,
                     &SetExtmarkOpts::builder().id(id.into()).build(),
                 )
-            })
-            .await?
+            })?
             .into_nvim()?;
 
         Ok(())
     }
 
-    async fn set_mark_gravity(&mut self, id: Self::MarkId, gravity: Gravity) -> Result<()> {
+    fn set_mark_gravity(&mut self, id: Self::MarkId, gravity: Gravity) -> Result<()> {
         let mut buf = self.inner_buf();
 
-        let pos = self.get_mark_position(id).await?;
+        let pos = self.get_mark_position(id)?;
 
-        self.dispatcher
-            .dispatch(move || {
-                // TODO: In my opinion you shouldn't have to delete an extmark and create a new one to change options,
-                //       but it doesn't work otherwise. Should investigate.
-                buf.del_extmark(get_eel_namespace(), id.into())?;
+        self.dispatcher.dispatch(move || {
+            // TODO: In my opinion you shouldn't have to delete an extmark and create a new one to change options,
+            //       but it doesn't work otherwise. Should investigate.
+            buf.del_extmark(get_eel_namespace(), id.into())?;
 
-                buf.set_extmark(
-                    get_eel_namespace(),
-                    pos.row,
-                    pos.col,
-                    &SetExtmarkOpts::builder()
-                        .id(id.into())
-                        .right_gravity(match gravity {
-                            Gravity::Left => false,
-                            Gravity::Right => true,
-                        })
-                        .build(),
-                )?;
+            buf.set_extmark(
+                get_eel_namespace(),
+                pos.row,
+                pos.col,
+                &SetExtmarkOpts::builder()
+                    .id(id.into())
+                    .right_gravity(match gravity {
+                        Gravity::Left => false,
+                        Gravity::Right => true,
+                    })
+                    .build(),
+            )?;
 
-                Ok::<_, NvimError>(())
-            })
-            .await??;
+            Ok::<_, NvimError>(())
+        })??;
 
         Ok(())
     }

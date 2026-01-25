@@ -1,5 +1,3 @@
-use async_trait::async_trait;
-
 use crate::{
     Editor, Position, Result,
     buffer::{BufferHandle, WriteBuffer},
@@ -13,7 +11,6 @@ pub struct RegionEditor<E: Editor> {
     empty: bool,
 }
 
-#[async_trait]
 impl<E> Editor for RegionEditor<E>
 where
     E: Editor,
@@ -21,7 +18,7 @@ where
 {
     type BufferHandle = BufferRegion<E::BufferHandle>;
 
-    async fn new_buffer(&self) -> Result<Self::BufferHandle> {
+    fn new_buffer(&self) -> Result<Self::BufferHandle> {
         let buffer = new_buffer_with_content(
             &self.editor,
             if self.empty {
@@ -32,27 +29,26 @@ Second line
 Third line
 Fourth line"#
             },
-        )
-        .await;
+        );
 
         let region = if self.empty {
-            BufferRegion::lock_new(&buffer, &Position::new(0, 0), &Position::new(0, 0)).await?
+            BufferRegion::lock_new(&buffer, &Position::new(0, 0), &Position::new(0, 0))?
         } else {
-            BufferRegion::lock_new(&buffer, &Position::new(1, 2), &Position::new(2, 5)).await?
+            BufferRegion::lock_new(&buffer, &Position::new(1, 2), &Position::new(2, 5))?
         };
 
-        region.write().await.set_content("").await?;
+        region.write().set_content("")?;
 
         Ok(region)
     }
 
     // Not required for buffer tests
 
-    async fn current_buffer(&self) -> Result<Self::BufferHandle> {
+    fn current_buffer(&self) -> Result<Self::BufferHandle> {
         unimplemented!()
     }
 
-    async fn set_current_buffer(
+    fn set_current_buffer(
         &self,
         _buffer: &mut <Self::BufferHandle as BufferHandle>::WriteBuffer,
     ) -> Result<()> {

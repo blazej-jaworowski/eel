@@ -1,10 +1,9 @@
 use std::{ops::RangeBounds, sync::Arc};
 
-use async_trait::async_trait;
-use tokio::sync::RwLock;
+use parking_lot::{ArcRwLockReadGuard, ArcRwLockWriteGuard, RwLock};
 use tracing::trace;
 
-use crate::{async_dispatch::Dispatcher, error::Error as NvimError};
+use crate::{dispatcher::Dispatcher, error::Error as NvimError};
 
 use eel::{
     Position, Result,
@@ -76,70 +75,63 @@ impl NvimBuffer {
     }
 }
 
-#[async_trait]
 impl ReadBuffer for NvimBuffer {
-    async fn line_count(&self) -> Result<usize> {
+    fn line_count(&self) -> Result<usize> {
         Ok(self.inner_buf().line_count().map_err(NvimError::from)?)
     }
 
-    async fn get_lines<R: RangeBounds<usize> + Send + 'static>(
+    fn get_lines<R: RangeBounds<usize> + Send + 'static>(
         &self,
         range: R,
     ) -> Result<impl Iterator<Item = String> + Send> {
         let buf = self.inner_buf();
 
-        let lines = self
-            .dispatcher
-            .dispatch(move || {
-                let lines = buf
-                    .get_lines(range, true)
-                    .map_err(NvimError::from)?
-                    .map(|s| s.to_string())
-                    .collect::<Vec<String>>();
+        let lines = self.dispatcher.dispatch(move || {
+            let lines = buf
+                .get_lines(range, true)
+                .map_err(NvimError::from)?
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>();
 
-                Ok::<_, NvimError>(lines)
-            })
-            .await??;
+            Ok::<_, NvimError>(lines)
+        })??;
 
         Ok(lines.into_iter())
     }
 }
 
-#[async_trait]
 impl WriteBuffer for NvimBuffer {
-    async fn set_text(&mut self, start: &Position, end: &Position, text: &str) -> Result<()> {
-        self.validate_pos(start).await?;
-        self.validate_pos(end).await?;
+    fn set_text(&mut self, start: &Position, end: &Position, text: &str) -> Result<()> {
+        self.validate_pos(start)?;
+        self.validate_pos(end)?;
 
         let mut buf = self.inner_buf();
         let text = text.to_string();
         let native_start: NativePosition = start.clone().into();
         let native_end: NativePosition = end.clone().into();
 
-        self.dispatcher
-            .dispatch(move || {
-                nvim_oxi::api::set_option_value(
-                    "modified",
-                    true,
-                    &nvim_oxi::api::opts::OptionOpts::builder()
-                        .buffer(buf.clone())
-                        .build(),
-                )?;
+        self.dispatcher.dispatch(move || {
+            nvim_oxi::api::set_option_value(
+                "modified",
+                true,
+                &nvim_oxi::api::opts::OptionOpts::builder()
+                    .buffer(buf.clone())
+                    .build(),
+            )?;
 
-                buf.set_text(
-                    (native_start.row - 1)..(native_end.row - 1),
-                    native_start.col - 1,
-                    native_end.col - 1,
-                    text.split("\n"),
-                )?;
+            buf.set_text(
+                (native_start.row - 1)..(native_end.row - 1),
+                native_start.col - 1,
+                native_end.col - 1,
+                text.split("\n"),
+            )?;
 
-                // We only have to redraw if the buffer is visible, not sure if checking buffer
-                // visibility would be faster though.
-                nvim_oxi::api::command("redraw")?;
+            // We only have to redraw if the buffer is visible, not sure if checking buffer
+            // visibility would be faster though.
+            nvim_oxi::api::command("redraw")?;
 
-                Ok::<_, NvimError>(())
-            })
-            .await??;
+            Ok::<_, NvimError>(())
+        })??;
 
         Ok(())
     }
@@ -165,37 +157,33 @@ impl NvimBufferHandle {
 impl BufferHandle for NvimBufferHandle {
     type ReadBuffer = NvimBuffer;
     type WriteBuffer = NvimBuffer;
-    type ReadBufferLock = tokio::sync::OwnedRwLockReadGuard<Self::ReadBuffer>;
-    type WriteBufferLock = tokio::sync::OwnedRwLockWriteGuard<Self::WriteBuffer>;
+    type ReadBufferLock = ArcRwLockReadGuard<parking_lot::RawRwLock, Self::ReadBuffer>;
+    type WriteBufferLock = ArcRwLockWriteGuard<parking_lot::RawRwLock, Self::WriteBuffer>;
 
-    fn read(&self) -> impl Future<Output = Self::ReadBufferLock> + Send + 'static {
+    fn read(&self) -> Self::ReadBufferLock {
         let lock = self.buffer_lock.clone();
         let id = self.id;
 
-        async move {
-            trace!(buffer_id = id, "Read-locking buffer");
+        trace!(buffer_id = id, "Read-locking buffer");
 
-            let lock = lock.read_owned().await;
+        let lock = lock.read_arc();
 
-            trace!(buffer_id = id, "Buffer read-locked");
+        trace!(buffer_id = id, "Buffer read-locked");
 
-            lock
-        }
+        lock
     }
 
-    fn write(&self) -> impl Future<Output = Self::WriteBufferLock> + Send + 'static {
+    fn write(&self) -> Self::WriteBufferLock {
         let lock = self.buffer_lock.clone();
         let id = self.id;
 
-        async move {
-            trace!(buffer_id = id, "Write-locking buffer");
+        trace!(buffer_id = id, "Write-locking buffer");
 
-            let lock = lock.write_owned().await;
+        let lock = lock.write_arc();
 
-            trace!(buffer_id = id, "Buffer write-locked");
+        trace!(buffer_id = id, "Buffer write-locked");
 
-            lock
-        }
+        lock
     }
 }
 
@@ -211,7 +199,7 @@ mod tests {
     use eel_nvim_macros::nvim_test;
 
     #[nvim_test(editor_factory = crate::test_utils::nvim_editor_factory)]
-    async fn basic_test(_editor: impl Editor) {
+    fn basic_test(_editor: impl Editor) {
         let var_key = "test_value";
         let original_value = String::from("Hello!");
 

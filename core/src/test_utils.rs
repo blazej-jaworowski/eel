@@ -11,11 +11,8 @@ macro_rules! assert_buffer_content {
     ($buffer:expr, $content:expr) => {{
         use $crate::buffer::ReadBuffer as _;
 
-        let buffer = $buffer.read().await;
-        let content = buffer
-            .get_content()
-            .await
-            .expect("Failed to get buffer content");
+        let buffer = $buffer.read();
+        let content = buffer.get_content().expect("Failed to get buffer content");
         assert_eq!(content, $content)
     }};
 }
@@ -31,19 +28,14 @@ macro_rules! assert_buffer_error {
     };
 }
 
-pub async fn new_buffer_with_content<E: Editor>(editor: &E, content: &str) -> E::BufferHandle {
-    let buffer = editor
-        .new_buffer()
-        .await
-        .expect("Failed to create test buffer");
+pub fn new_buffer_with_content<E: Editor>(editor: &E, content: &str) -> E::BufferHandle {
+    let buffer = editor.new_buffer().expect("Failed to create test buffer");
 
     assert_buffer_content!(buffer, "");
 
     buffer
         .write()
-        .await
         .set_content(content)
-        .await
         .expect("Failed to set buffer content");
 
     assert_buffer_content!(buffer, content);
@@ -66,8 +58,8 @@ mod cursor {
         ($buffer:expr, $position:expr) => {{
             use $crate::cursor::CursorReadBuffer as _;
 
-            let buffer = $buffer.read().await;
-            let actual_pos = buffer.get_cursor().await.expect("Failed to get cursor");
+            let buffer = $buffer.read();
+            let actual_pos = buffer.get_cursor().expect("Failed to get cursor");
             assert_eq!(actual_pos, $position, "Invalid cursor position");
         }};
     }
@@ -81,25 +73,22 @@ mod cursor {
         }};
     }
 
-    pub async fn new_buffer_with_state<E>(editor: &E, state: &str) -> E::BufferHandle
+    pub fn new_buffer_with_state<E>(editor: &E, state: &str) -> E::BufferHandle
     where
         E: Editor,
         <E::BufferHandle as BufferHandle>::ReadBuffer: CursorReadBuffer,
         <E::BufferHandle as BufferHandle>::WriteBuffer: CursorWriteBuffer,
     {
-        let buffer = editor
-            .new_buffer()
-            .await
-            .expect("Failed to create test buffer");
+        let buffer = editor.new_buffer().expect("Failed to create test buffer");
 
-        set_buffer_state(&buffer, state).await;
+        set_buffer_state(&buffer, state);
 
         assert_buffer_state!(buffer, state);
 
         buffer
     }
 
-    pub async fn set_buffer_state<B>(buffer: &B, state: &str)
+    pub fn set_buffer_state<B>(buffer: &B, state: &str)
     where
         B: BufferHandle,
         B::ReadBuffer: CursorReadBuffer,
@@ -108,16 +97,14 @@ mod cursor {
         let (content, position) = parse_buffer_state(state);
 
         {
-            let mut buffer_lock = buffer.write().await;
+            let mut buffer_lock = buffer.write();
 
             buffer_lock
                 .set_content(&content)
-                .await
                 .expect("Failed to set content");
 
             buffer_lock
                 .set_cursor(&position)
-                .await
                 .expect("Failed to set position");
         }
 
@@ -181,18 +168,18 @@ where
     }
 }
 
-pub trait EditorTest<E, R> {
-    fn run(self, editor: E) -> impl Future<Output = R> + Send + 'static;
+pub trait EditorTest<E, R>: Send + 'static {
+    fn run(self, editor: E) -> R;
 }
 
-impl<F, E, R, Fut> EditorTest<E, R> for F
+impl<F, E, R> EditorTest<E, R> for F
 where
-    F: FnOnce(E) -> Fut,
-    Fut: Future<Output = R> + Send + 'static,
+    F: FnOnce(E) -> R,
+    F: Send + 'static,
     E: Editor,
     R: Send + 'static,
 {
-    fn run(self, editor: E) -> impl Future<Output = R> + Send + 'static {
+    fn run(self, editor: E) -> R {
         self(editor)
     }
 }
@@ -209,12 +196,12 @@ macro_rules! eel_tests {
     ) => {
         $crate::test_utils::paste! {
             #[$test_tag(editor_factory = $editor_factory)]
-            async fn [< $prefix $test_name >]<E>(editor: E)
+            fn [< $prefix $test_name >]<E>(editor: E)
             where
                 E: $crate::Editor,
                 $( $editor_bounds )*
             {
-                $module_path::$test_name(editor).await;
+                $module_path::$test_name(editor);
             }
         }
     };
