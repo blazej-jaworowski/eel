@@ -5,16 +5,16 @@ edition = "2024"
 
 [dependencies]
 itertools = "0.14.0"
-paste = "1.0.15"
-rayon = "1.11.0"
 thiserror = "2.0.17"
 tracing = "0.1.44"
 tracing-appender = "0.2.4"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+paste = { version = "1.0.15", optional = true }
+rayon = { version = "1.11.0", optional = true }
 
 [features]
 default = ["cursor", "mark", "region"]
-tests = []
+tests = ["dep:paste", "dep:rayon"]
 cursor = []
 mark = []
 region = ["mark"]
