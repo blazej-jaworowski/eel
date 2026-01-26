@@ -1,14 +1,14 @@
 [package]
 name = "eel-nvim"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2024"
 
 [lib]
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-eel = { version = "0.0.2", path = "../../core", default-features = false }
-eel-nvim-macros = { version = "0.0.2", path = "../eel-nvim-macros", optional = true }
+eel = { version = "0.0.3", path = "../../core", default-features = false }
+eel-nvim-macros = { version = "0.0.3", path = "../eel-nvim-macros", optional = true }
 
 nvim-oxi = { version = "0.6.0", features = ["libuv", "mlua", "neovim-0-11"] }
 thiserror = "2.0.17"
