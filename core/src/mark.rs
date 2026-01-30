@@ -83,6 +83,12 @@ where
     pub fn set_gravity(&mut self, gravity: Gravity) -> Result<()> {
         self.buffer_lock.set_mark_gravity(self.id, gravity)
     }
+
+    pub fn append_at(&mut self, text: &str) -> Result<()> {
+        let position = self.get_position()?;
+
+        self.buffer_lock.append_at_position(&position, text)
+    }
 }
 
 struct InnerMark<B: MarkBufferHandle> {
