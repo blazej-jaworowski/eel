@@ -1,5 +1,6 @@
 use proc_macro::TokenStream;
-use proc_macro2::Span;
+use proc_macro2::{Span, TokenStream as TokenStream2};
+use proc_macro_crate::{FoundCrate, crate_name};
 use quote::quote;
 use syn::{Expr, Ident, ItemFn, parse_macro_input, spanned::Spanned};
 
@@ -7,6 +8,16 @@ use syn::{Expr, Ident, ItemFn, parse_macro_input, spanned::Spanned};
 #[deluxe(attributes(nvim_test))]
 struct NvimTestArgs {
     editor_factory: Expr,
+}
+
+fn eel_nvim_path() -> TokenStream2 {
+    match crate_name("eel-nvim").expect("eel-nvim must be a dependency") {
+        FoundCrate::Itself => quote! { crate },
+        FoundCrate::Name(name) => {
+            let ident = Ident::new(&name, Span::call_site());
+            quote! { ::#ident }
+        }
+    }
 }
 
 #[proc_macro_attribute]
@@ -29,6 +40,7 @@ pub fn nvim_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     function.sig.ident = new_ident.clone();
 
     let return_type = function.sig.output.clone();
+    let eel_nvim = eel_nvim_path();
 
     quote! {
         #function
@@ -36,7 +48,7 @@ pub fn nvim_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         #[::nvim_oxi::test]
         fn #test_ident() #return_type {
             let editor_factory = #editor_factory;
-            crate::test_utils::run_nvim_test(#new_ident, editor_factory)
+            #eel_nvim::test_utils::run_nvim_test(#new_ident, editor_factory)
         }
     }
     .into()
