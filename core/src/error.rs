@@ -5,6 +5,10 @@ pub enum Error {
     #[error("Buffer error: {0}")]
     Buffer(#[from] crate::buffer::Error),
 
+    #[cfg(feature = "window")]
+    #[error("Window error: {0}")]
+    Window(#[from] crate::window::Error),
+
     #[error("Platform error: {0}")]
     Platform(Arc<dyn PlatformError>),
 }

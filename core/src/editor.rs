@@ -4,10 +4,7 @@ pub trait Editor: Sized + Sync + Send + 'static {
     type BufferHandle: BufferHandle;
 
     fn current_buffer(&self) -> Result<Self::BufferHandle>;
-    fn set_current_buffer(
-        &self,
-        buffer: &mut <Self::BufferHandle as BufferHandle>::WriteBuffer,
-    ) -> Result<()>;
+    fn set_current_buffer(&self, buffer: &Self::BufferHandle) -> Result<()>;
 
     fn new_buffer(&self) -> Result<Self::BufferHandle>;
     fn kill_buffer(&self, buffer: &Self::BufferHandle) -> Result<()>;

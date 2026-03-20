@@ -23,6 +23,9 @@ pub mod mark;
 #[cfg(feature = "region")]
 pub mod region;
 
+#[cfg(feature = "window")]
+pub mod window;
+
 #[cfg(feature = "tests")]
 pub mod test_utils;
 
@@ -47,6 +50,12 @@ mod tests {
     }
 
     #[macro_export]
+    #[cfg(not(feature = "window"))]
+    macro_rules! eel_window_tests {
+        ($test_tag:path, $editor_factory:expr $(, $_:tt)?) => {};
+    }
+
+    #[macro_export]
     macro_rules! eel_full_tests {
         ($test_tag:path, $editor_factory:expr) => {
             $crate::eel_buffer_tests!($test_tag, $editor_factory);
@@ -54,6 +63,7 @@ mod tests {
             $crate::eel_mark_tests!($test_tag, $editor_factory);
             $crate::eel_region_tests!($test_tag, $editor_factory);
             $crate::eel_editor_tests!($test_tag, $editor_factory);
+            $crate::eel_window_tests!($test_tag, $editor_factory);
         };
     }
 }

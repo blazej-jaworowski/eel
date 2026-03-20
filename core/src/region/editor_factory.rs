@@ -18,6 +18,14 @@ where
 {
     type BufferHandle = BufferRegion<E::BufferHandle>;
 
+    fn current_buffer(&self) -> Result<Self::BufferHandle> {
+        unimplemented!()
+    }
+
+    fn set_current_buffer(&self, _buffer: &Self::BufferHandle) -> Result<()> {
+        unimplemented!()
+    }
+
     fn new_buffer(&self) -> Result<Self::BufferHandle> {
         let buffer = new_buffer_with_content(
             &self.editor,
@@ -40,19 +48,6 @@ Fourth line"#
         region.write()?.set_content("")?;
 
         Ok(region)
-    }
-
-    // Not required for buffer tests
-
-    fn current_buffer(&self) -> Result<Self::BufferHandle> {
-        unimplemented!()
-    }
-
-    fn set_current_buffer(
-        &self,
-        _buffer: &mut <Self::BufferHandle as BufferHandle>::WriteBuffer,
-    ) -> Result<()> {
-        unimplemented!()
     }
 
     fn kill_buffer(&self, _buffer: &Self::BufferHandle) -> Result<()> {
