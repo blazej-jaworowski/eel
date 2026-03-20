@@ -11,7 +11,7 @@ macro_rules! assert_buffer_content {
     ($buffer:expr, $content:expr) => {{
         use $crate::buffer::ReadBuffer as _;
 
-        let buffer = $buffer.read();
+        let buffer = $buffer.read().expect("buffer dropped");
         let content = buffer.get_content().expect("Failed to get buffer content");
         assert_eq!(content, $content)
     }};
@@ -35,6 +35,7 @@ pub fn new_buffer_with_content<E: Editor>(editor: &E, content: &str) -> E::Buffe
 
     buffer
         .write()
+        .expect("buffer dropped")
         .set_content(content)
         .expect("Failed to set buffer content");
 
@@ -58,7 +59,7 @@ mod cursor {
         ($buffer:expr, $position:expr) => {{
             use $crate::cursor::CursorReadBuffer as _;
 
-            let buffer = $buffer.read();
+            let buffer = $buffer.read().expect("buffer dropped");
             let actual_pos = buffer.get_cursor().expect("Failed to get cursor");
             assert_eq!(actual_pos, $position, "Invalid cursor position");
         }};
@@ -97,7 +98,7 @@ mod cursor {
         let (content, position) = parse_buffer_state(state);
 
         {
-            let mut buffer_lock = buffer.write();
+            let mut buffer_lock = buffer.write().expect("buffer dropped");
 
             buffer_lock
                 .set_content(&content)

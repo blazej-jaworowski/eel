@@ -86,6 +86,7 @@ Second line"#,
 
         buffer
             .write()
+            .expect("buffer dropped")
             .set_cursor(&Position::new(1, 4))
             .expect("Failed to set cursor");
 
@@ -93,6 +94,7 @@ Second line"#,
 
         buffer
             .write()
+            .expect("buffer dropped")
             .set_cursor(&Position::new(0, 0))
             .expect("Failed to set cursor");
 
@@ -100,23 +102,33 @@ Second line"#,
 
         buffer
             .write()
+            .expect("buffer dropped")
             .set_cursor(&Position::new(1, 11))
             .expect("Failed to set cursor");
 
         assert_cursor_pos!(buffer, Position::new(1, 11));
 
         assert_buffer_error!(
-            buffer.write().set_cursor(&Position::new(2, 0)),
+            buffer
+                .write()
+                .expect("buffer dropped")
+                .set_cursor(&Position::new(2, 0)),
             crate::Error::Buffer(crate::buffer::Error::RowOutOfBounds { row: 2, limit: 1 })
         );
 
         assert_buffer_error!(
-            buffer.write().set_cursor(&Position::new(1, 12)),
+            buffer
+                .write()
+                .expect("buffer dropped")
+                .set_cursor(&Position::new(1, 12)),
             crate::Error::Buffer(crate::buffer::Error::ColOutOfBounds { col: 12, limit: 11 })
         );
 
         assert_buffer_error!(
-            buffer.write().set_cursor(&Position::new(0, 12)),
+            buffer
+                .write()
+                .expect("buffer dropped")
+                .set_cursor(&Position::new(0, 12)),
             crate::Error::Buffer(crate::buffer::Error::ColOutOfBounds { col: 12, limit: 10 })
         );
     }
@@ -136,6 +148,7 @@ Third| line
 
         buffer
             .write()
+            .expect("buffer dropped")
             .append_at_cursor("test ")
             .expect("Failed to append at cursor");
 
@@ -149,11 +162,13 @@ Third test line
 
         buffer
             .write()
+            .expect("buffer dropped")
             .set_cursor(&Position::new(2, 6))
             .expect("Failed to set cursor");
 
         buffer
             .write()
+            .expect("buffer dropped")
             .prepend_at_cursor("(3rd) ")
             .expect("Failed to prepend at cursor");
 
@@ -180,6 +195,7 @@ Third line!"#,
 
         buffer
             .write()
+            .expect("buffer dropped")
             .type_text("test ")
             .expect("Failed to type text");
 
@@ -192,6 +208,7 @@ Third line!"#
 
         buffer
             .write()
+            .expect("buffer dropped")
             .type_text("test\n")
             .expect("Failed to type text");
 
@@ -213,6 +230,7 @@ Third line!"#
 
         buffer
             .write()
+            .expect("buffer dropped")
             .type_text("test")
             .expect("Failed to type text");
 

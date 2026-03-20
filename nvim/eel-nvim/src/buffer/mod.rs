@@ -1,4 +1,7 @@
-use std::{ops::RangeBounds, sync::Arc};
+use std::{
+    ops::RangeBounds,
+    sync::{Arc, Weak},
+};
 
 use parking_lot::{ArcRwLockReadGuard, ArcRwLockWriteGuard, RwLock};
 use tracing::trace;
@@ -7,7 +10,7 @@ use crate::{dispatcher::Dispatcher, error::Error as NvimError};
 
 use eel::{
     Position, Result,
-    buffer::{BufferHandle, ReadBuffer, WriteBuffer},
+    buffer::{BufferHandle, Error as BufferError, ReadBuffer, WriteBuffer},
 };
 
 /// Represents a coordinate location within a Neovim buffer.
@@ -57,6 +60,7 @@ impl From<NativePosition> for Position {
     }
 }
 
+#[derive(Debug)]
 pub struct NvimBuffer {
     handle: i32,
     dispatcher: Arc<Dispatcher>,
@@ -140,16 +144,16 @@ impl WriteBuffer for NvimBuffer {
 #[derive(Clone, derivative::Derivative)]
 #[derivative(Debug, Eq, PartialEq)]
 pub struct NvimBufferHandle {
-    id: i32,
+    pub(crate) id: i32,
     #[derivative(Debug = "ignore", PartialEq = "ignore")]
-    buffer_lock: Arc<RwLock<NvimBuffer>>,
+    buffer_lock: Weak<RwLock<NvimBuffer>>,
 }
 
 impl NvimBufferHandle {
-    pub(crate) fn new(buffer: NvimBuffer) -> Self {
+    pub(crate) fn new(id: i32, arc: &Arc<RwLock<NvimBuffer>>) -> Self {
         Self {
-            id: buffer.inner_buf().handle(),
-            buffer_lock: Arc::new(RwLock::new(buffer)),
+            id,
+            buffer_lock: Arc::downgrade(arc),
         }
     }
 }
@@ -160,30 +164,30 @@ impl BufferHandle for NvimBufferHandle {
     type ReadBufferLock = ArcRwLockReadGuard<parking_lot::RawRwLock, Self::ReadBuffer>;
     type WriteBufferLock = ArcRwLockWriteGuard<parking_lot::RawRwLock, Self::WriteBuffer>;
 
-    fn read(&self) -> Self::ReadBufferLock {
-        let lock = self.buffer_lock.clone();
+    fn read(&self) -> Result<Self::ReadBufferLock> {
+        let arc = self.buffer_lock.upgrade().ok_or(BufferError::Dropped)?;
         let id = self.id;
 
         trace!(buffer_id = id, "Read-locking buffer");
 
-        let lock = lock.read_arc();
+        let lock = arc.read_arc();
 
         trace!(buffer_id = id, "Buffer read-locked");
 
-        lock
+        Ok(lock)
     }
 
-    fn write(&self) -> Self::WriteBufferLock {
-        let lock = self.buffer_lock.clone();
+    fn write(&self) -> Result<Self::WriteBufferLock> {
+        let arc = self.buffer_lock.upgrade().ok_or(BufferError::Dropped)?;
         let id = self.id;
 
         trace!(buffer_id = id, "Write-locking buffer");
 
-        let lock = lock.write_arc();
+        let lock = arc.write_arc();
 
         trace!(buffer_id = id, "Buffer write-locked");
 
-        lock
+        Ok(lock)
     }
 }
 

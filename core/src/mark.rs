@@ -134,7 +134,7 @@ impl<B: MarkBufferHandle> Mark<B> {
     }
 
     pub fn lock_new(buffer: &B, position: &Position) -> Result<Self> {
-        let lock = buffer.write();
+        let lock = buffer.write()?;
         Self::new(buffer, position, lock)
     }
 
@@ -152,14 +152,15 @@ impl<B: MarkBufferHandle> Mark<B> {
 
     pub fn lock_read(
         &self,
-    ) -> MarkAccess<'static, impl ReadBufferLock<ReadBuffer = B::ReadBuffer> + 'static> {
-        let lock = self.inner.buffer.read();
+    ) -> Result<MarkAccess<'static, impl ReadBufferLock<ReadBuffer = B::ReadBuffer> + 'static>>
+    {
+        let lock = self.inner.buffer.read()?;
 
-        MarkAccess {
+        Ok(MarkAccess {
             id: self.inner.id,
             buffer_lock: lock,
             _marker: Default::default(),
-        }
+        })
     }
 
     pub fn write<'a, Buf, L>(&self, buffer_lock: L) -> MarkAccess<'a, L>
@@ -176,14 +177,15 @@ impl<B: MarkBufferHandle> Mark<B> {
 
     pub fn lock_write(
         &self,
-    ) -> MarkAccess<'static, impl WriteBufferLock<WriteBuffer = B::WriteBuffer> + 'static> {
-        let lock = self.inner.buffer.write();
+    ) -> Result<MarkAccess<'static, impl WriteBufferLock<WriteBuffer = B::WriteBuffer> + 'static>>
+    {
+        let lock = self.inner.buffer.write()?;
 
-        MarkAccess {
+        Ok(MarkAccess {
             id: self.inner.id,
             buffer_lock: lock,
             _marker: Default::default(),
-        }
+        })
     }
 }
 
@@ -196,7 +198,7 @@ impl<B: MarkBufferHandle> Drop for InnerMark<B> {
         std::thread::spawn(move || {
             _ = buffer
                 .write()
-                .destroy_mark(id)
+                .and_then(|mut lock| lock.destroy_mark(id))
                 .log_err_msg("Failed to destroy mark");
         });
     }
@@ -221,17 +223,20 @@ pub mod tests {
 
         let position = mark
             .lock_read()
+            .expect("buffer dropped")
             .get_position()
             .expect("Failed to get position");
 
         assert_eq!(position, Position::new(0, 1));
 
         mark.lock_write()
+            .expect("buffer dropped")
             .set_position(&Position::new(1, 0))
             .expect("Failed to set position");
 
         let position = mark
             .lock_read()
+            .expect("buffer dropped")
             .get_position()
             .expect("Failed to get position");
 
@@ -244,7 +249,7 @@ pub mod tests {
         E::BufferHandle: MarkBufferHandle,
     {
         let buffer = new_buffer_with_content(&editor, "First line");
-        let mut buffer_lock = buffer.write();
+        let mut buffer_lock = buffer.write().expect("buffer dropped");
 
         let mark = Mark::new(&buffer, &Position::new(0, 6), &mut *buffer_lock)
             .expect("Failed to create mark");
@@ -271,7 +276,7 @@ pub mod tests {
         E::BufferHandle: MarkBufferHandle,
     {
         let buffer = new_buffer_with_content(&editor, "First line");
-        let mut buffer_lock = buffer.write();
+        let mut buffer_lock = buffer.write().expect("buffer dropped");
 
         let mark = Mark::new(&buffer, &Position::new(0, 5), &mut *buffer_lock)
             .expect("Failed to create mark");
@@ -312,7 +317,7 @@ pub mod tests {
         E::BufferHandle: MarkBufferHandle,
     {
         let buffer = new_buffer_with_content(&editor, "First line");
-        let mut buffer_lock = buffer.write();
+        let mut buffer_lock = buffer.write().expect("buffer dropped");
 
         let mark = Mark::new(&buffer, &Position::new(0, 5), &mut *buffer_lock)
             .expect("Failed to create mark");

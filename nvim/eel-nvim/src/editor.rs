@@ -13,7 +13,7 @@ use crate::{
 
 #[derive(Debug)]
 struct BufferStore {
-    buffers: RwLock<HashMap<i32, NvimBufferHandle>>,
+    buffers: RwLock<HashMap<i32, Arc<RwLock<NvimBuffer>>>>,
     dispatcher: Arc<Dispatcher>,
 }
 
@@ -30,19 +30,25 @@ impl BufferStore {
     fn get_buffer_handle(&self, buffer: nvim_oxi::api::Buffer) -> NvimBufferHandle {
         let key = buffer.handle();
 
-        if let Some(h) = self.buffers.read().get(&key) {
+        if let Some(arc) = self.buffers.read().get(&key) {
             trace!("Buffer handle exists already");
-            return h.clone();
+            return NvimBufferHandle::new(key, arc);
         }
 
-        self.buffers
-            .write()
-            .entry(key)
-            .or_insert_with(|| {
-                trace!("Creating new buffer handle");
-                NvimBufferHandle::new(NvimBuffer::new(buffer, self.dispatcher.clone()))
-            })
-            .clone()
+        let mut buffers = self.buffers.write();
+        let arc = buffers.entry(key).or_insert_with(|| {
+            trace!("Creating new buffer handle");
+            Arc::new(RwLock::new(NvimBuffer::new(
+                buffer,
+                self.dispatcher.clone(),
+            )))
+        });
+
+        NvimBufferHandle::new(key, arc)
+    }
+
+    fn remove_buffer(&self, id: i32) {
+        self.buffers.write().remove(&id);
     }
 }
 
@@ -108,6 +114,24 @@ impl Editor for NvimEditor {
         })??;
 
         Ok(self.buffer_store.get_buffer_handle(buf))
+    }
+
+    fn kill_buffer(&self, buffer: &NvimBufferHandle) -> Result<()> {
+        let id = buffer.id;
+
+        self.dispatch(move || {
+            let buf: nvim_oxi::api::Buffer = id.into();
+            buf.delete(
+                &nvim_oxi::api::opts::BufDeleteOpts::builder()
+                    .force(true)
+                    .build(),
+            )
+            .map_err(NvimError::from)
+        })??;
+
+        self.buffer_store.remove_buffer(id);
+
+        Ok(())
     }
 }
 

@@ -37,7 +37,7 @@ Fourth line"#
             BufferRegion::lock_new(&buffer, &Position::new(1, 2), &Position::new(2, 5))?
         };
 
-        region.write().set_content("")?;
+        region.write()?.set_content("")?;
 
         Ok(region)
     }
@@ -52,6 +52,10 @@ Fourth line"#
         &self,
         _buffer: &mut <Self::BufferHandle as BufferHandle>::WriteBuffer,
     ) -> Result<()> {
+        unimplemented!()
+    }
+
+    fn kill_buffer(&self, _buffer: &Self::BufferHandle) -> Result<()> {
         unimplemented!()
     }
 }

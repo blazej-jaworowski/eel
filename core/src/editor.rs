@@ -9,4 +9,5 @@ pub trait Editor: Sized + Sync + Send + 'static {
         &self,
         buffer: &mut <Self::BufferHandle as BufferHandle>::WriteBuffer,
     ) -> Result<()>;
+    fn kill_buffer(&self, buffer: &Self::BufferHandle) -> Result<()>;
 }

@@ -98,7 +98,7 @@ impl<B: MarkBufferHandle> BufferRegion<B> {
     }
 
     pub fn lock_new(buffer: &B, start: &Position, end: &Position) -> Result<Self> {
-        let lock = buffer.write();
+        let lock = buffer.write()?;
 
         Self::new(buffer, start, end, lock)
     }
@@ -185,30 +185,30 @@ impl<B: MarkBufferHandle> BufferHandle for BufferRegion<B> {
     type ReadBufferLock = Box<Self::ReadBuffer>;
     type WriteBufferLock = Box<Self::WriteBuffer>;
 
-    fn read(&self) -> Self::ReadBufferLock {
+    fn read(&self) -> Result<Self::ReadBufferLock> {
         let buffer = self.buffer.clone();
         let start = self.start.clone();
         let end = self.end.clone();
 
-        Box::new(BufferRegionAccess {
+        Ok(Box::new(BufferRegionAccess {
             start,
             end,
-            buffer_lock: buffer.read(),
+            buffer_lock: buffer.read()?,
             _mark: Default::default(),
-        })
+        }))
     }
 
-    fn write(&self) -> Self::WriteBufferLock {
+    fn write(&self) -> Result<Self::WriteBufferLock> {
         let buffer = self.buffer.clone();
         let start = self.start.clone();
         let end = self.end.clone();
 
-        Box::new(BufferRegionAccess {
+        Ok(Box::new(BufferRegionAccess {
             start,
             end,
-            buffer_lock: buffer.write(),
+            buffer_lock: buffer.write()?,
             _mark: Default::default(),
-        })
+        }))
     }
 }
 
@@ -273,7 +273,7 @@ Fourth line"#,
     {
         let (_, region) = init_test_region(&editor);
 
-        let region = region.read();
+        let region = region.read().expect("buffer dropped");
 
         assert_eq!(
             region
@@ -317,7 +317,7 @@ Fourth line"#,
     {
         let (_, region) = init_test_region(&editor);
 
-        let region = region.read();
+        let region = region.read().expect("buffer dropped");
 
         assert_eq!(
             region
@@ -344,6 +344,7 @@ Fourth line"#,
         assert_eq!(
             region
                 .read()
+                .expect("buffer dropped")
                 .line_count()
                 .expect("Failed to get line count"),
             2
@@ -357,7 +358,7 @@ Fourth line"#,
     {
         let (_, region) = init_test_region(&editor);
 
-        let region = region.read();
+        let region = region.read().expect("buffer dropped");
 
         assert_eq!(
             region
@@ -386,16 +387,25 @@ Fourth line"#,
 
         region
             .write()
+            .expect("buffer dropped")
             .append(" line\nFourth line\nFifth")
             .expect("Failed to append");
 
         assert_eq!(
-            region.read().get_content().expect("Failed to get content"),
+            region
+                .read()
+                .expect("buffer dropped")
+                .get_content()
+                .expect("Failed to get content"),
             "cond line\nThird line\nFourth line\nFifth"
         );
 
         assert_eq!(
-            buffer.read().get_content().expect("Failed to get content"),
+            buffer
+                .read()
+                .expect("buffer dropped")
+                .get_content()
+                .expect("Failed to get content"),
             r#"First line
 Second line
 Third line
@@ -406,16 +416,25 @@ Fourth line"#
 
         region
             .write()
+            .expect("buffer dropped")
             .prepend("ll me on it\n")
             .expect("Failed to append");
 
         assert_eq!(
-            region.read().get_content().expect("Failed to get content"),
+            region
+                .read()
+                .expect("buffer dropped")
+                .get_content()
+                .expect("Failed to get content"),
             "ll me on it\ncond line\nThird line\nFourth line\nFifth"
         );
 
         assert_eq!(
-            buffer.read().get_content().expect("Failed to get content"),
+            buffer
+                .read()
+                .expect("buffer dropped")
+                .get_content()
+                .expect("Failed to get content"),
             r#"First line
 Sell me on it
 cond line
@@ -427,16 +446,25 @@ Fourth line"#
 
         region
             .write()
+            .expect("buffer dropped")
             .set_line(1, "Second line")
             .expect("Failed to set line");
 
         assert_eq!(
-            region.read().get_content().expect("Failed to get content"),
+            region
+                .read()
+                .expect("buffer dropped")
+                .get_content()
+                .expect("Failed to get content"),
             "ll me on it\nSecond line\nThird line\nFourth line\nFifth"
         );
 
         assert_eq!(
-            buffer.read().get_content().expect("Failed to get content"),
+            buffer
+                .read()
+                .expect("buffer dropped")
+                .get_content()
+                .expect("Failed to get content"),
             r#"First line
 Sell me on it
 Second line
@@ -463,7 +491,8 @@ Fourth line"#,
         let mut region =
             BufferRegion::lock_new(&buffer, &Position::new(1, 11), &Position::new(1, 11))
                 .expect("Failed to create region")
-                .write();
+                .write()
+                .expect("buffer dropped");
 
         assert_eq!(region.line_count().expect("Failed to get line count"), 1);
 
@@ -483,7 +512,11 @@ Fourth line"#,
         drop(region);
 
         assert_eq!(
-            buffer.read().get_content().expect("Failed to get content"),
+            buffer
+                .read()
+                .expect("buffer dropped")
+                .get_content()
+                .expect("Failed to get content"),
             r#"First line
 Second line
 Actual third line

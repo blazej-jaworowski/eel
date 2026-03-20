@@ -12,6 +12,9 @@ pub enum Error {
     #[error("Col out of bounds: {col} (limit {limit})")]
     ColOutOfBounds { col: isize, limit: usize },
 
+    #[error("Buffer was dropped")]
+    Dropped,
+
     #[error("Error: {0}")]
     Custom(Box<dyn std::error::Error + Sync + Send>),
 }
@@ -166,8 +169,8 @@ pub trait BufferHandle: Eq + Clone + Send + Sync + 'static {
     type ReadBufferLock: ReadBufferLock<ReadBuffer = Self::ReadBuffer> + 'static;
     type WriteBufferLock: WriteBufferLock<WriteBuffer = Self::WriteBuffer> + 'static;
 
-    fn read(&self) -> Self::ReadBufferLock;
-    fn write(&self) -> Self::WriteBufferLock;
+    fn read(&self) -> Result<Self::ReadBufferLock>;
+    fn write(&self) -> Result<Self::WriteBufferLock>;
 }
 
 #[cfg(feature = "tests")]
@@ -189,11 +192,19 @@ Second line
 Third line!"#,
         );
 
-        assert_eq!(buffer.read().max_row().expect("Failed to get max row"), 2);
+        assert_eq!(
+            buffer
+                .read()
+                .expect("buffer dropped")
+                .max_row()
+                .expect("Failed to get max row"),
+            2
+        );
 
         assert_eq!(
             buffer
                 .read()
+                .expect("buffer dropped")
                 .max_row_pos(0)
                 .expect("Failed to get max row pos"),
             Position::new(0, 10)
@@ -202,22 +213,38 @@ Third line!"#,
         assert_eq!(
             buffer
                 .read()
+                .expect("buffer dropped")
                 .max_row_pos(2)
                 .expect("Failed to get max row pos"),
             Position::new(2, 11)
         );
 
         assert_eq!(
-            buffer.read().max_pos().expect("Failed to get max pos"),
+            buffer
+                .read()
+                .expect("buffer dropped")
+                .max_pos()
+                .expect("Failed to get max pos"),
             Position::new(2, 11)
         );
 
         let buffer = new_buffer_with_content(&editor, "");
 
-        assert_eq!(buffer.read().max_row().expect("Failed to get max row"), 0);
+        assert_eq!(
+            buffer
+                .read()
+                .expect("buffer dropped")
+                .max_row()
+                .expect("Failed to get max row"),
+            0
+        );
 
         assert_eq!(
-            buffer.read().max_pos().expect("Failed to get max pos"),
+            buffer
+                .read()
+                .expect("buffer dropped")
+                .max_pos()
+                .expect("Failed to get max pos"),
             Position::new(0, 0)
         );
 
@@ -229,10 +256,21 @@ Third line!
 "#,
         );
 
-        assert_eq!(buffer.read().max_row().expect("Failed to get max row"), 3);
+        assert_eq!(
+            buffer
+                .read()
+                .expect("buffer dropped")
+                .max_row()
+                .expect("Failed to get max row"),
+            3
+        );
 
         assert_eq!(
-            buffer.read().max_pos().expect("Failed to get max pos"),
+            buffer
+                .read()
+                .expect("buffer dropped")
+                .max_pos()
+                .expect("Failed to get max pos"),
             Position::new(3, 0)
         );
     }
@@ -247,6 +285,7 @@ Third line!"#,
 
         buffer
             .write()
+            .expect("buffer dropped")
             .set_text(&Position::new(0, 6), &Position::new(2, 5), ":)")
             .expect("Failed to set text");
 
@@ -254,6 +293,7 @@ Third line!"#,
 
         buffer
             .write()
+            .expect("buffer dropped")
             .set_text(&Position::new(0, 6), &Position::new(0, 9), "")
             .expect("Failed to set text");
 
@@ -261,6 +301,7 @@ Third line!"#,
 
         buffer
             .write()
+            .expect("buffer dropped")
             .set_text(&Position::new(0, 11), &Position::new(0, 11), " (wow)")
             .expect("Failed to set text");
 
@@ -276,6 +317,7 @@ Some line
 
         buffer
             .write()
+            .expect("buffer dropped")
             .set_text(&Position::new(2, 0), &Position::new(2, 9), "")
             .expect("Failed to set text");
 
@@ -288,6 +330,7 @@ Some line
 
         buffer
             .write()
+            .expect("buffer dropped")
             .set_text(&Position::new(2, 0), &Position::new(2, 0), "This was empty")
             .expect("Failed to set text");
 
@@ -301,6 +344,7 @@ This was empty
 
         buffer
             .write()
+            .expect("buffer dropped")
             .set_text(&Position::new(0, 0), &Position::new(2, 0), "New line\n")
             .expect("Failed to set text");
 
@@ -313,6 +357,7 @@ This was empty
 
         buffer
             .write()
+            .expect("buffer dropped")
             .set_text(&Position::new(1, 0), &Position::new(1, 0), "Hey, ")
             .expect("Failed to set text");
 
@@ -329,6 +374,7 @@ Hey, This was empty
 
         buffer
             .write()
+            .expect("buffer dropped")
             .append("First line")
             .expect("Failed to append");
 
@@ -336,6 +382,7 @@ Hey, This was empty
 
         buffer
             .write()
+            .expect("buffer dropped")
             .append("\nSecond line")
             .expect("Failed to append");
 
@@ -347,6 +394,7 @@ Hey, This was empty
 
         buffer
             .write()
+            .expect("buffer dropped")
             .prepend("Second line")
             .expect("Failed to prepend");
 
@@ -354,6 +402,7 @@ Hey, This was empty
 
         buffer
             .write()
+            .expect("buffer dropped")
             .prepend("First line\n")
             .expect("Failed to prepend");
 
@@ -370,6 +419,7 @@ Third line!"#,
 
         buffer
             .write()
+            .expect("buffer dropped")
             .append_at_position(&Position::new(1, 6), "test ")
             .expect("Failed to append at position");
 
@@ -382,6 +432,7 @@ Third line!"#
 
         buffer
             .write()
+            .expect("buffer dropped")
             .append_at_position(&Position::new(2, 10), " :)")
             .expect("Failed to append at position");
 
@@ -395,18 +446,21 @@ Third line! :)"#
         assert_buffer_error!(
             buffer
                 .write()
+                .expect("buffer dropped")
                 .append_at_position(&Position::new(3, 0), ":("),
             crate::Error::Buffer(Error::RowOutOfBounds { row: 3, limit: 2 })
         );
         assert_buffer_error!(
             buffer
                 .write()
+                .expect("buffer dropped")
                 .append_at_position(&Position::new(1, 17), ":("),
             crate::Error::Buffer(Error::ColOutOfBounds { col: 17, limit: 16 })
         );
 
         buffer
             .write()
+            .expect("buffer dropped")
             .prepend_at_position(&Position::new(1, 16), " ;)")
             .expect("Failed to prepend at position");
 
@@ -419,6 +473,7 @@ Third line! :)"#
 
         buffer
             .write()
+            .expect("buffer dropped")
             .prepend_at_position(&Position::new(0, 0), "Actual first line\n")
             .expect("Failed to prepend at position");
 
@@ -433,6 +488,7 @@ Third line! :)"#
         assert_buffer_error!(
             buffer
                 .write()
+                .expect("buffer dropped")
                 .prepend_at_position(&Position::new(4, 0), ":("),
             crate::Error::Buffer(Error::RowOutOfBounds { row: 4, limit: 3 })
         );
@@ -445,12 +501,20 @@ Third line! :)"#
 
         for i in 0..1000 {
             let line = format!("{i}\n");
-            buffer.write().append(&line).expect("Failed to append");
+            buffer
+                .write()
+                .expect("buffer dropped")
+                .append(&line)
+                .expect("Failed to append");
 
             data.push_str(&line);
         }
 
-        let content = buffer.read().get_content().expect("Failed to get content");
+        let content = buffer
+            .read()
+            .expect("buffer dropped")
+            .get_content()
+            .expect("Failed to get content");
 
         assert!(content == data, "Content should be the same");
     }
@@ -465,7 +529,10 @@ Third line! :)"#
             .map(|i| {
                 let buffer = buffer.clone();
 
-                buffer.write().append(&format!("{i}\n"))
+                buffer
+                    .write()
+                    .expect("buffer dropped")
+                    .append(&format!("{i}\n"))
             })
             .for_each(|r| {
                 r.expect("Failed to append");
@@ -473,6 +540,7 @@ Third line! :)"#
 
         let mut values = buffer
             .read()
+            .expect("buffer dropped")
             .get_all_lines()
             .expect("Failed to get all lines")
             .collect::<Vec<_>>();
@@ -483,6 +551,21 @@ Third line! :)"#
         nums.sort();
 
         assert!(values == nums, "Lists should be the same");
+    }
+
+    pub fn test_kill_buffer(editor: impl Editor) {
+        let buffer = editor.new_buffer().expect("Failed to create buffer");
+
+        editor.kill_buffer(&buffer).expect("Failed to kill buffer");
+
+        assert!(
+            matches!(buffer.read(), Err(crate::Error::Buffer(Error::Dropped))),
+            "Expected Dropped error after kill_buffer"
+        );
+        assert!(
+            matches!(buffer.write(), Err(crate::Error::Buffer(Error::Dropped))),
+            "Expected Dropped error after kill_buffer"
+        );
     }
 
     #[macro_export]
@@ -502,6 +585,7 @@ Third line! :)"#
                     test_buffer_pos_append,
                     test_buffer_append_many,
                     test_buffer_set_text_parallel,
+                    test_kill_buffer,
                 ],
             );
         };
