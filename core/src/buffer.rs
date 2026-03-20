@@ -553,21 +553,6 @@ Third line! :)"#
         assert!(values == nums, "Lists should be the same");
     }
 
-    pub fn test_kill_buffer(editor: impl Editor) {
-        let buffer = editor.new_buffer().expect("Failed to create buffer");
-
-        editor.kill_buffer(&buffer).expect("Failed to kill buffer");
-
-        assert!(
-            matches!(buffer.read(), Err(crate::Error::Buffer(Error::Dropped))),
-            "Expected Dropped error after kill_buffer"
-        );
-        assert!(
-            matches!(buffer.write(), Err(crate::Error::Buffer(Error::Dropped))),
-            "Expected Dropped error after kill_buffer"
-        );
-    }
-
     #[macro_export]
     macro_rules! eel_buffer_tests {
         ($test_tag:path, $editor_factory:expr, $prefix:tt) => {
@@ -585,7 +570,6 @@ Third line! :)"#
                     test_buffer_pos_append,
                     test_buffer_append_many,
                     test_buffer_set_text_parallel,
-                    test_kill_buffer,
                 ],
             );
         };

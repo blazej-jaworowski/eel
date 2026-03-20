@@ -3,7 +3,7 @@ pub use error::{Error, Result};
 
 pub mod tracing;
 
-mod editor;
+pub mod editor;
 mod position;
 
 pub use editor::Editor;
@@ -53,6 +53,7 @@ mod tests {
             $crate::eel_cursor_tests!($test_tag, $editor_factory);
             $crate::eel_mark_tests!($test_tag, $editor_factory);
             $crate::eel_region_tests!($test_tag, $editor_factory);
+            $crate::eel_editor_tests!($test_tag, $editor_factory);
         };
     }
 }
