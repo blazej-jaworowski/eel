@@ -22,9 +22,10 @@ parking_lot = { version = "0.12.5", features = ["arc_lock", "send_guard"] }
 nvim-oxi = { version = "0.6.0", features = ["neovim-0-11", "test"] }
 
 [features]
-default = ["cursor", "mark", "region"]
+default = ["cursor", "mark", "region", "window"]
 tests = []
 cursor = ["eel/cursor"]
 mark = ["eel/mark"]
 region = ["eel/region", "mark"]
+window = ["eel/window"]
 nvim-tests = ["dep:eel-nvim-macros", "nvim-oxi/test", "eel/tests"]
