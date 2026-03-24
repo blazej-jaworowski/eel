@@ -29,6 +29,49 @@ pub trait WriteWindowLock: ReadWindowLock {
     -> Result<()>;
 }
 
+impl<L: ReadWindowLock, D: std::ops::Deref<Target = L>> ReadWindowLock for D {
+    type WindowId = L::WindowId;
+    type BufferHandle = L::BufferHandle;
+
+    fn current_window_id(&self) -> Result<Self::WindowId> {
+        (**self).current_window_id()
+    }
+
+    fn get_buffer(&self, id: Self::WindowId) -> Result<Option<Self::BufferHandle>> {
+        (**self).get_buffer(id)
+    }
+
+    fn get_width(&self, id: Self::WindowId) -> Result<usize> {
+        (**self).get_width(id)
+    }
+
+    fn get_height(&self, id: Self::WindowId) -> Result<usize> {
+        (**self).get_height(id)
+    }
+}
+
+impl<L: WriteWindowLock, D: std::ops::DerefMut<Target = L>> WriteWindowLock for D {
+    fn new_window(&mut self, buffer: Option<&Self::BufferHandle>) -> Result<Self::WindowId> {
+        (**self).new_window(buffer)
+    }
+
+    fn close_window(&mut self, id: Self::WindowId) -> Result<()> {
+        (**self).close_window(id)
+    }
+
+    fn set_current(&mut self, id: Self::WindowId) -> Result<()> {
+        (**self).set_current(id)
+    }
+
+    fn set_buffer(
+        &mut self,
+        id: Self::WindowId,
+        buffer: Option<&Self::BufferHandle>,
+    ) -> Result<()> {
+        (**self).set_buffer(id, buffer)
+    }
+}
+
 pub trait WindowStoreHandle: Clone + std::fmt::Debug + PartialEq + Eq + Send + Sync {
     type WindowId: WindowId;
     type BufferHandle: BufferHandle;
@@ -73,6 +116,8 @@ pub struct Window<S: WindowStoreHandle> {
 }
 
 impl<S: WindowStoreHandle> Window<S> {
+    // TODO: add a bound ensuring `L` comes from the same store as this window
+    // to prevent accidentally mixing locks from different stores.
     pub fn read<L>(&self, lock: L) -> WindowAccess<L>
     where
         L: ReadWindowLock<WindowId = S::WindowId, BufferHandle = S::BufferHandle>,
@@ -80,6 +125,8 @@ impl<S: WindowStoreHandle> Window<S> {
         WindowAccess { id: self.id, lock }
     }
 
+    // TODO: add a bound ensuring `L` comes from the same store as this window
+    // to prevent accidentally mixing locks from different stores.
     pub fn write<L>(&self, lock: L) -> WindowAccess<L>
     where
         L: WriteWindowLock<WindowId = S::WindowId, BufferHandle = S::BufferHandle>,
