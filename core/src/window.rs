@@ -299,6 +299,65 @@ pub mod tests {
         window.lock_write().close().expect("Failed to close window");
     }
 
+    pub fn test_window_atomic_read<E: WindowEditor>(editor: E) {
+        let win1 = editor.new_window(None).expect("Failed to create window 1");
+        let win2 = editor.new_window(None).expect("Failed to create window 2");
+
+        let store = editor.get_window_store();
+        let lock = store.windows_read();
+        let w1 = win1.read(&lock).get_width().expect("get_width win1");
+        let w2 = win2.read(&lock).get_width().expect("get_width win2");
+        drop(lock);
+
+        assert!(w1 > 0, "win1 width should be > 0");
+        assert!(w2 > 0, "win2 width should be > 0");
+
+        win1.lock_write().close().expect("close win1");
+        win2.lock_write().close().expect("close win2");
+    }
+
+    pub fn test_window_atomic_write<E: WindowEditor>(editor: E)
+    where
+        E::BufferHandle: std::fmt::Debug,
+    {
+        let buf1 = editor.new_buffer().expect("Failed to create buffer 1");
+        let buf2 = editor.new_buffer().expect("Failed to create buffer 2");
+        let win1 = editor
+            .new_window(Some(&buf1))
+            .expect("Failed to create window 1");
+        let win2 = editor
+            .new_window(Some(&buf2))
+            .expect("Failed to create window 2");
+
+        // Swap buffers atomically under one write lock
+        let store = editor.get_window_store();
+        let mut lock = store.windows_write();
+        win1.write(&mut lock)
+            .set_buffer(Some(&buf2))
+            .expect("set_buffer win1 -> buf2");
+        win2.write(&mut lock)
+            .set_buffer(Some(&buf1))
+            .expect("set_buffer win2 -> buf1");
+        drop(lock);
+
+        let got1 = win1
+            .lock_read()
+            .get_buffer()
+            .expect("get_buffer win1")
+            .expect("win1 should have a buffer");
+        let got2 = win2
+            .lock_read()
+            .get_buffer()
+            .expect("get_buffer win2")
+            .expect("win2 should have a buffer");
+
+        assert_eq!(got1, buf2, "win1 should now hold buf2");
+        assert_eq!(got2, buf1, "win2 should now hold buf1");
+
+        win1.lock_write().close().expect("close win1");
+        win2.lock_write().close().expect("close win2");
+    }
+
     #[macro_export]
     macro_rules! eel_window_tests {
         ($test_tag:path, $editor_factory:expr, $prefix:tt) => {
@@ -318,6 +377,8 @@ pub mod tests {
                     test_window_dimensions,
                     test_window_current,
                     test_window_set_current,
+                    test_window_atomic_read,
+                    test_window_atomic_write,
                 ],
             );
         };
