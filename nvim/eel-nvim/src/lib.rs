@@ -3,7 +3,6 @@ pub mod tracing;
 
 pub mod buffer;
 pub mod editor;
-pub mod window;
 
 pub mod dispatcher;
 pub mod lua;

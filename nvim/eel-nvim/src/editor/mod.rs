@@ -57,7 +57,7 @@ pub struct NvimEditor {
     buffer_store: BufferStore,
     dispatcher: Arc<Dispatcher>,
     #[cfg(feature = "window")]
-    window_store: window_editor::NvimWindowStoreHandle,
+    window_store: window::NvimWindowStoreHandle,
 }
 
 impl NvimEditor {
@@ -67,7 +67,7 @@ impl NvimEditor {
         Ok(NvimEditor {
             buffer_store: BufferStore::new(dispatcher.clone()),
             #[cfg(feature = "window")]
-            window_store: window_editor::NvimWindowStoreHandle::new(dispatcher.clone()),
+            window_store: window::NvimWindowStoreHandle::new(dispatcher.clone()),
             dispatcher,
         })
     }
@@ -142,4 +142,4 @@ pub(crate) fn get_eel_namespace() -> u32 {
 }
 
 #[cfg(feature = "window")]
-mod window_editor;
+mod window;

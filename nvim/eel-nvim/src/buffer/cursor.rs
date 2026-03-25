@@ -5,14 +5,14 @@ use eel::{
 };
 
 use crate::{
+    buffer::NativePosition,
     error::{Error as NvimError, IntoNvimResult as _},
-    window::NvimWindow,
 };
 
-use super::{NativePosition, NvimBuffer};
+use super::NvimBuffer;
 
 impl NvimBuffer {
-    fn get_window(&self) -> Result<Option<NvimWindow>> {
+    fn get_window(&self) -> Result<Option<nvim_oxi::api::Window>> {
         let handle = self.handle;
 
         let nvim_window = self.dispatcher.dispatch(move || {
@@ -25,14 +25,20 @@ impl NvimBuffer {
             })
         })?;
 
-        Ok(nvim_window.map(|w| NvimWindow::wrap(w, self.dispatcher.clone())))
+        Ok(nvim_window)
     }
 }
 
 impl CursorReadBuffer for NvimBuffer {
     fn get_cursor(&self) -> Result<Position> {
         let position: Position = match self.get_window()? {
-            Some(w) => w.get_cursor()?,
+            Some(win) => {
+                let native: NativePosition = self
+                    .dispatcher
+                    .dispatch(move || win.get_cursor().into_nvim())??
+                    .into();
+                native.into()
+            }
             None => {
                 let native: NativePosition = self.inner_buf().get_mark('\"').into_nvim()?.into();
                 native.into()
@@ -51,8 +57,14 @@ impl CursorWriteBuffer for NvimBuffer {
     fn set_cursor(&mut self, position: &Position) -> Result<()> {
         self.validate_pos(position)?;
 
-        match &mut self.get_window()? {
-            Some(w) => w.set_cursor(position)?,
+        match self.get_window()? {
+            Some(mut win) => {
+                let native: NativePosition = position.clone().into();
+                self.dispatcher.dispatch(move || {
+                    win.set_cursor(native.row, native.col).into_nvim()?;
+                    nvim_oxi::api::command("redraw").into_nvim()
+                })??;
+            }
             None => {
                 let native: NativePosition = position.clone().into();
                 self.inner_buf()
