@@ -1,14 +1,23 @@
 use std::{collections::HashMap, sync::Arc};
 
 use eel::window::{
-    ReadWindowLock, WindowDimensions, WindowEditor, WindowId, WindowOpenConfig, WindowPosition,
-    WindowStoreHandle, WriteWindowLock,
+    FloatConfig, ReadWindowLock, SplitConfig, WindowDimensions, WindowEditor, WindowId,
+    WindowOpenConfig, WindowPosition, WindowStoreHandle, WriteWindowLock,
 };
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::{buffer::NvimBufferHandle, dispatcher::Dispatcher, error::IntoNvimResult};
 
 use super::NvimEditor;
+
+fn into_nvim_split_dir(dir: eel::window::SplitDirection) -> nvim_oxi::api::types::SplitDirection {
+    match dir {
+        eel::window::SplitDirection::Above => nvim_oxi::api::types::SplitDirection::Above,
+        eel::window::SplitDirection::Below => nvim_oxi::api::types::SplitDirection::Below,
+        eel::window::SplitDirection::Left => nvim_oxi::api::types::SplitDirection::Left,
+        eel::window::SplitDirection::Right => nvim_oxi::api::types::SplitDirection::Right,
+    }
+}
 
 struct NvimWindowEntry {
     buffer: Option<NvimBufferHandle>,
@@ -105,110 +114,123 @@ impl ReadWindowLock for NvimWindowStore {
     }
 }
 
+fn resolve_buf(buf_id: Option<i32>) -> eel::Result<nvim_oxi::api::Buffer> {
+    if let Some(id) = buf_id {
+        Ok(id.into())
+    } else {
+        Ok(nvim_oxi::api::create_buf(false, true).into_nvim()?)
+    }
+}
+
+impl NvimWindowStore {
+    fn open_split_window(
+        &self,
+        split: SplitConfig<NvimWindowId>,
+        buf_id: Option<i32>,
+    ) -> eel::Result<nvim_oxi::api::Window> {
+        // Splitting a floating window is not allowed
+        if self
+            .windows
+            .get(&split.window.0)
+            .map(|e| e.is_floating)
+            .unwrap_or(false)
+        {
+            return Err(eel::window::Error::CannotSplitFloat.into());
+        }
+
+        // Check if resulting window dimensions will be correct
+        let dispatcher = self.dispatcher.clone();
+        dispatcher.dispatch(move || -> eel::Result<nvim_oxi::api::Window> {
+            let buf = resolve_buf(buf_id)?;
+
+            let target_win = nvim_oxi::api::Window::from(split.window.0);
+            let dim = match split.direction {
+                eel::window::SplitDirection::Left | eel::window::SplitDirection::Right => {
+                    target_win.get_width().into_nvim()? as usize
+                }
+                eel::window::SplitDirection::Above | eel::window::SplitDirection::Below => {
+                    target_win.get_height().into_nvim()? as usize
+                }
+            };
+            if split.split_at == 0 || split.split_at >= dim {
+                return Err(eel::window::Error::InvalidSplitAt {
+                    split_at: split.split_at,
+                    limit: dim.saturating_sub(1),
+                }
+                .into());
+            }
+
+            let mut builder = nvim_oxi::api::types::WindowConfig::builder();
+            builder.split(into_nvim_split_dir(split.direction));
+            match split.direction {
+                eel::window::SplitDirection::Left | eel::window::SplitDirection::Right => {
+                    builder.width(split.split_at as u32);
+                }
+                eel::window::SplitDirection::Above | eel::window::SplitDirection::Below => {
+                    builder.height(split.split_at as u32);
+                }
+            }
+            let mut nvim_config = builder.build();
+            nvim_config.win = Some(nvim_oxi::api::Window::from(split.window.0));
+
+            Ok(nvim_oxi::api::open_win(&buf, false, &nvim_config).into_nvim()?)
+        })?
+    }
+
+    fn open_float_window(
+        &self,
+        float: FloatConfig,
+        buf_id: Option<i32>,
+    ) -> eel::Result<nvim_oxi::api::Window> {
+        let dispatcher = self.dispatcher.clone();
+        dispatcher.dispatch(move || -> eel::Result<nvim_oxi::api::Window> {
+            let buf = resolve_buf(buf_id)?;
+
+            let cols = nvim_oxi::api::get_option_value::<u32>(
+                "columns",
+                &nvim_oxi::api::opts::OptionOpts::default(),
+            )
+            .into_nvim()? as usize;
+            let rows = nvim_oxi::api::get_option_value::<u32>(
+                "lines",
+                &nvim_oxi::api::opts::OptionOpts::default(),
+            )
+            .into_nvim()? as usize;
+            if float.position.col + float.dimensions.width > cols
+                || float.position.row + float.dimensions.height > rows
+            {
+                return Err(eel::window::Error::FloatOutOfBounds.into());
+            }
+
+            let nvim_config = nvim_oxi::api::types::WindowConfig::builder()
+                .relative(nvim_oxi::api::types::WindowRelativeTo::Editor)
+                .anchor(nvim_oxi::api::types::WindowAnchor::NorthWest)
+                .row(float.position.row as f64)
+                .col(float.position.col as f64)
+                .width(float.dimensions.width as u32)
+                .height(float.dimensions.height as u32)
+                .focusable(float.focusable)
+                .zindex(float.z_index)
+                .build();
+
+            Ok(nvim_oxi::api::open_win(&buf, false, &nvim_config).into_nvim()?)
+        })?
+    }
+}
+
 impl WriteWindowLock for NvimWindowStore {
     fn new_window(
         &mut self,
         buffer: Option<&NvimBufferHandle>,
         config: WindowOpenConfig<NvimWindowId>,
     ) -> eel::Result<NvimWindowId> {
-        if let WindowOpenConfig::Split(ref split) = config
-            && self
-                .windows
-                .get(&split.window.0)
-                .map(|e| e.is_floating)
-                .unwrap_or(false)
-        {
-            return Err(eel::window::Error::CannotSplitFloat.into());
-        }
-
         let is_floating = matches!(config, WindowOpenConfig::Float(_));
-        let dispatcher = self.dispatcher.clone();
         let buf_id: Option<i32> = buffer.map(|h| h.id);
 
-        let win = dispatcher.dispatch(move || -> eel::Result<nvim_oxi::api::Window> {
-            let buf: nvim_oxi::api::Buffer = if let Some(id) = buf_id {
-                id.into()
-            } else {
-                nvim_oxi::api::create_buf(false, true).into_nvim()?
-            };
-
-            let mut nvim_config = nvim_oxi::api::types::WindowConfig::default();
-
-            match config {
-                WindowOpenConfig::Split(split) => {
-                    // Validate split_at: must be 1 <= split_at < dim so both
-                    // resulting windows are non-zero.
-                    let target_win = nvim_oxi::api::Window::from(split.window.0);
-                    let dim = match split.direction {
-                        eel::window::SplitDirection::Left | eel::window::SplitDirection::Right => {
-                            target_win.get_width().into_nvim()? as usize
-                        }
-                        eel::window::SplitDirection::Above | eel::window::SplitDirection::Below => {
-                            target_win.get_height().into_nvim()? as usize
-                        }
-                    };
-                    if split.split_at == 0 || split.split_at >= dim {
-                        return Err(eel::window::Error::InvalidSplitAt {
-                            split_at: split.split_at,
-                            limit: dim.saturating_sub(1),
-                        }
-                        .into());
-                    }
-
-                    nvim_config.split = Some(match split.direction {
-                        eel::window::SplitDirection::Above => {
-                            nvim_oxi::api::types::SplitDirection::Above
-                        }
-                        eel::window::SplitDirection::Below => {
-                            nvim_oxi::api::types::SplitDirection::Below
-                        }
-                        eel::window::SplitDirection::Left => {
-                            nvim_oxi::api::types::SplitDirection::Left
-                        }
-                        eel::window::SplitDirection::Right => {
-                            nvim_oxi::api::types::SplitDirection::Right
-                        }
-                    });
-                    nvim_config.win = Some(nvim_oxi::api::Window::from(split.window.0));
-                    match split.direction {
-                        eel::window::SplitDirection::Left | eel::window::SplitDirection::Right => {
-                            nvim_config.width = Some(split.split_at as u32);
-                        }
-                        eel::window::SplitDirection::Above | eel::window::SplitDirection::Below => {
-                            nvim_config.height = Some(split.split_at as u32);
-                        }
-                    }
-                }
-                WindowOpenConfig::Float(float) => {
-                    let cols = nvim_oxi::api::get_option_value::<u32>(
-                        "columns",
-                        &nvim_oxi::api::opts::OptionOpts::default(),
-                    )
-                    .into_nvim()? as usize;
-                    let rows = nvim_oxi::api::get_option_value::<u32>(
-                        "lines",
-                        &nvim_oxi::api::opts::OptionOpts::default(),
-                    )
-                    .into_nvim()? as usize;
-                    if float.position.col + float.dimensions.width > cols
-                        || float.position.row + float.dimensions.height > rows
-                    {
-                        return Err(eel::window::Error::FloatOutOfBounds.into());
-                    }
-
-                    nvim_config.relative = Some(nvim_oxi::api::types::WindowRelativeTo::Editor);
-                    nvim_config.anchor = Some(nvim_oxi::api::types::WindowAnchor::NorthWest);
-                    nvim_config.row = Some(float.position.row as f64);
-                    nvim_config.col = Some(float.position.col as f64);
-                    nvim_config.width = Some(float.dimensions.width as u32);
-                    nvim_config.height = Some(float.dimensions.height as u32);
-                    nvim_config.focusable = Some(float.focusable);
-                    nvim_config.zindex = Some(float.z_index);
-                }
-            }
-
-            Ok(nvim_oxi::api::open_win(&buf, false, &nvim_config).into_nvim()?)
-        })??;
+        let win = match config {
+            WindowOpenConfig::Split(split) => self.open_split_window(split, buf_id)?,
+            WindowOpenConfig::Float(float) => self.open_float_window(float, buf_id)?,
+        };
 
         let id = NvimWindowId(win.handle());
         self.windows.insert(
