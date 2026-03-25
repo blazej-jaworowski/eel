@@ -8,6 +8,57 @@ pub enum Error {
 
 pub trait WindowId: Copy + Eq + std::fmt::Debug + Send + Sync {}
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SplitDirection {
+    Above,
+    Below,
+    Left,
+    Right,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SplitConfig<W> {
+    pub direction: SplitDirection,
+    pub window: W,
+    pub split_at: usize,
+}
+
+impl<S: WindowStoreHandle> SplitConfig<Window<S>> {
+    pub fn with_id(self) -> SplitConfig<S::WindowId> {
+        SplitConfig {
+            direction: self.direction,
+            window: self.window.id,
+            split_at: self.split_at,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WindowPosition {
+    pub row: usize,
+    pub col: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WindowDimensions {
+    pub width: usize,
+    pub height: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FloatConfig {
+    pub position: WindowPosition,
+    pub dimensions: WindowDimensions,
+    pub focusable: bool,
+    pub z_index: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowOpenConfig<W> {
+    Split(SplitConfig<W>),
+    Float(FloatConfig),
+}
+
 pub trait ReadWindowLock {
     type WindowId: WindowId;
     type BufferHandle: BufferHandle;
@@ -16,12 +67,16 @@ pub trait ReadWindowLock {
     fn list_window_ids(&self) -> Result<Vec<Self::WindowId>>;
     fn get_buffer(&self, id: Self::WindowId) -> Result<Option<Self::BufferHandle>>;
 
-    fn get_width(&self, id: Self::WindowId) -> Result<usize>;
-    fn get_height(&self, id: Self::WindowId) -> Result<usize>;
+    fn get_dimensions(&self, id: Self::WindowId) -> Result<WindowDimensions>;
+    fn get_position(&self, id: Self::WindowId) -> Result<WindowPosition>;
 }
 
 pub trait WriteWindowLock: ReadWindowLock {
-    fn new_window(&mut self, buffer: Option<&Self::BufferHandle>) -> Result<Self::WindowId>;
+    fn new_window(
+        &mut self,
+        buffer: Option<&Self::BufferHandle>,
+        config: WindowOpenConfig<Self::WindowId>,
+    ) -> Result<Self::WindowId>;
     fn close_window(&mut self, id: Self::WindowId) -> Result<()>;
 
     fn set_current(&mut self, id: Self::WindowId) -> Result<()>;
@@ -46,18 +101,22 @@ impl<L: ReadWindowLock, D: std::ops::Deref<Target = L>> ReadWindowLock for D {
         (**self).get_buffer(id)
     }
 
-    fn get_width(&self, id: Self::WindowId) -> Result<usize> {
-        (**self).get_width(id)
+    fn get_dimensions(&self, id: Self::WindowId) -> Result<WindowDimensions> {
+        (**self).get_dimensions(id)
     }
 
-    fn get_height(&self, id: Self::WindowId) -> Result<usize> {
-        (**self).get_height(id)
+    fn get_position(&self, id: Self::WindowId) -> Result<WindowPosition> {
+        (**self).get_position(id)
     }
 }
 
 impl<L: WriteWindowLock, D: std::ops::DerefMut<Target = L>> WriteWindowLock for D {
-    fn new_window(&mut self, buffer: Option<&Self::BufferHandle>) -> Result<Self::WindowId> {
-        (**self).new_window(buffer)
+    fn new_window(
+        &mut self,
+        buffer: Option<&Self::BufferHandle>,
+        config: WindowOpenConfig<Self::WindowId>,
+    ) -> Result<Self::WindowId> {
+        (**self).new_window(buffer, config)
     }
 
     fn close_window(&mut self, id: Self::WindowId) -> Result<()> {
@@ -98,12 +157,27 @@ pub trait WindowEditor: crate::Editor {
 
     fn get_window_store(&self) -> Self::WindowStoreHandle;
 
-    fn new_window(
+    fn new_split_window(
         &self,
+        config: SplitConfig<Window<Self::WindowStoreHandle>>,
         buffer: Option<&Self::BufferHandle>,
     ) -> Result<Window<Self::WindowStoreHandle>> {
         let store = self.get_window_store();
-        let id = store.windows_write().new_window(buffer)?;
+        let id = store
+            .windows_write()
+            .new_window(buffer, WindowOpenConfig::Split(config.with_id()))?;
+        Ok(Window { id, store })
+    }
+
+    fn new_float_window(
+        &self,
+        config: FloatConfig,
+        buffer: Option<&Self::BufferHandle>,
+    ) -> Result<Window<Self::WindowStoreHandle>> {
+        let store = self.get_window_store();
+        let id = store
+            .windows_write()
+            .new_window(buffer, WindowOpenConfig::Float(config))?;
         Ok(Window { id, store })
     }
 
@@ -116,7 +190,13 @@ pub trait WindowEditor: crate::Editor {
     fn list_windows(&self) -> Result<Vec<Window<Self::WindowStoreHandle>>> {
         let store = self.get_window_store();
         let ids = store.windows_read().list_window_ids()?;
-        Ok(ids.into_iter().map(|id| Window { id, store: store.clone() }).collect())
+        Ok(ids
+            .into_iter()
+            .map(|id| Window {
+                id,
+                store: store.clone(),
+            })
+            .collect())
     }
 }
 
@@ -170,12 +250,12 @@ impl<L: ReadWindowLock> WindowAccess<L> {
         self.lock.get_buffer(self.id)
     }
 
-    pub fn get_width(&self) -> Result<usize> {
-        self.lock.get_width(self.id)
+    pub fn get_dimensions(&self) -> Result<WindowDimensions> {
+        self.lock.get_dimensions(self.id)
     }
 
-    pub fn get_height(&self) -> Result<usize> {
-        self.lock.get_height(self.id)
+    pub fn get_position(&self) -> Result<WindowPosition> {
+        self.lock.get_position(self.id)
     }
 }
 
@@ -197,19 +277,33 @@ impl<L: WriteWindowLock> WindowAccess<L> {
 pub mod tests {
     use super::*;
 
+    fn new_window<E: WindowEditor>(
+        editor: &E,
+        buffer: Option<&E::BufferHandle>,
+    ) -> Window<E::WindowStoreHandle> {
+        editor
+            .new_float_window(
+                FloatConfig {
+                    position: WindowPosition { row: 1, col: 1 },
+                    dimensions: WindowDimensions {
+                        width: 20,
+                        height: 10,
+                    },
+                    focusable: true,
+                    z_index: 50,
+                },
+                buffer,
+            )
+            .expect("new_float_window failed")
+    }
+
     pub fn test_window_new_close<E: WindowEditor>(editor: E) {
         let buffer = editor.new_buffer().expect("Failed to create buffer");
-        let window = editor
-            .new_window(Some(&buffer))
-            .expect("Failed to create window");
+        let window = new_window(&editor, Some(&buffer));
 
         assert!(
-            window.lock_read().get_width().is_ok(),
-            "get_width should succeed on new window"
-        );
-        assert!(
-            window.lock_read().get_height().is_ok(),
-            "get_height should succeed on new window"
+            window.lock_read().get_dimensions().is_ok(),
+            "get_dimensions should succeed on new window"
         );
 
         window.lock_write().close().expect("Failed to close window");
@@ -220,9 +314,7 @@ pub mod tests {
         E::BufferHandle: std::fmt::Debug,
     {
         let buffer = editor.new_buffer().expect("Failed to create buffer");
-        let window = editor
-            .new_window(Some(&buffer))
-            .expect("Failed to create window");
+        let window = new_window(&editor, Some(&buffer));
 
         let got = window
             .lock_read()
@@ -244,9 +336,7 @@ pub mod tests {
     {
         let buf1 = editor.new_buffer().expect("Failed to create buffer 1");
         let buf2 = editor.new_buffer().expect("Failed to create buffer 2");
-        let window = editor
-            .new_window(Some(&buf1))
-            .expect("Failed to create window");
+        let window = new_window(&editor, Some(&buf1));
 
         window
             .lock_write()
@@ -265,16 +355,15 @@ pub mod tests {
     }
 
     pub fn test_window_dimensions<E: WindowEditor>(editor: E) {
-        let window = editor.new_window(None).expect("Failed to create window");
+        let window = new_window(&editor, None);
 
-        let width = window.lock_read().get_width().expect("Failed to get width");
-        let height = window
+        let dims = window
             .lock_read()
-            .get_height()
-            .expect("Failed to get height");
+            .get_dimensions()
+            .expect("Failed to get dimensions");
 
-        assert!(width > 0, "Window width should be > 0");
-        assert!(height > 0, "Window height should be > 0");
+        assert!(dims.width > 0, "Window width should be > 0");
+        assert!(dims.height > 0, "Window height should be > 0");
 
         window.lock_write().close().expect("Failed to close window");
     }
@@ -285,17 +374,13 @@ pub mod tests {
             .expect("Failed to get current window");
 
         assert!(
-            window.lock_read().get_width().is_ok(),
-            "get_width should succeed on current window"
-        );
-        assert!(
-            window.lock_read().get_height().is_ok(),
-            "get_height should succeed on current window"
+            window.lock_read().get_dimensions().is_ok(),
+            "get_dimensions should succeed on current window"
         );
     }
 
     pub fn test_window_set_current<E: WindowEditor>(editor: E) {
-        let window = editor.new_window(None).expect("Failed to create window");
+        let window = new_window(&editor, None);
 
         window
             .lock_write()
@@ -311,17 +396,23 @@ pub mod tests {
     }
 
     pub fn test_window_atomic_read<E: WindowEditor>(editor: E) {
-        let win1 = editor.new_window(None).expect("Failed to create window 1");
-        let win2 = editor.new_window(None).expect("Failed to create window 2");
+        let win1 = new_window(&editor, None);
+        let win2 = new_window(&editor, None);
 
         let store = editor.get_window_store();
         let lock = store.windows_read();
-        let w1 = win1.read(&lock).get_width().expect("get_width win1");
-        let w2 = win2.read(&lock).get_width().expect("get_width win2");
+        let dims1 = win1
+            .read(&lock)
+            .get_dimensions()
+            .expect("get_dimensions win1");
+        let dims2 = win2
+            .read(&lock)
+            .get_dimensions()
+            .expect("get_dimensions win2");
         drop(lock);
 
-        assert!(w1 > 0, "win1 width should be > 0");
-        assert!(w2 > 0, "win2 width should be > 0");
+        assert!(dims1.width > 0, "win1 width should be > 0");
+        assert!(dims2.width > 0, "win2 width should be > 0");
 
         win1.lock_write().close().expect("close win1");
         win2.lock_write().close().expect("close win2");
@@ -333,12 +424,8 @@ pub mod tests {
     {
         let buf1 = editor.new_buffer().expect("Failed to create buffer 1");
         let buf2 = editor.new_buffer().expect("Failed to create buffer 2");
-        let win1 = editor
-            .new_window(Some(&buf1))
-            .expect("Failed to create window 1");
-        let win2 = editor
-            .new_window(Some(&buf2))
-            .expect("Failed to create window 2");
+        let win1 = new_window(&editor, Some(&buf1));
+        let win2 = new_window(&editor, Some(&buf2));
 
         // Swap buffers atomically under one write lock
         let store = editor.get_window_store();
@@ -349,6 +436,26 @@ pub mod tests {
         win2.write(&mut lock)
             .set_buffer(Some(&buf1))
             .expect("set_buffer win2 -> buf1");
+
+        // Read back while still holding the write lock
+        let got1_under_lock = win1
+            .read(&lock)
+            .get_buffer()
+            .expect("get_buffer win1 under write lock")
+            .expect("win1 should have a buffer under write lock");
+        let got2_under_lock = win2
+            .read(&lock)
+            .get_buffer()
+            .expect("get_buffer win2 under write lock")
+            .expect("win2 should have a buffer under write lock");
+        assert_eq!(
+            got1_under_lock, buf2,
+            "win1 should hold buf2 (read under write lock)"
+        );
+        assert_eq!(
+            got2_under_lock, buf1,
+            "win2 should hold buf1 (read under write lock)"
+        );
         drop(lock);
 
         let got1 = win1
@@ -370,22 +477,254 @@ pub mod tests {
     }
 
     pub fn test_window_list<E: WindowEditor>(editor: E) {
-        let win1 = editor.new_window(None).expect("Failed to create window 1");
-        let win2 = editor.new_window(None).expect("Failed to create window 2");
+        let win1 = new_window(&editor, None);
+        let win2 = new_window(&editor, None);
 
         let windows = editor.list_windows().expect("list_windows should succeed");
 
-        assert!(
-            windows.contains(&win1),
-            "list_windows should contain win1"
-        );
-        assert!(
-            windows.contains(&win2),
-            "list_windows should contain win2"
-        );
+        assert!(windows.contains(&win1), "list_windows should contain win1");
+        assert!(windows.contains(&win2), "list_windows should contain win2");
 
         win1.lock_write().close().expect("close win1");
         win2.lock_write().close().expect("close win2");
+    }
+
+    pub fn test_window_get_position<E: WindowEditor>(editor: E) {
+        let window = new_window(&editor, None);
+
+        window
+            .lock_read()
+            .get_position()
+            .expect("get_position should succeed on a split window");
+
+        window.lock_write().close().expect("Failed to close window");
+    }
+
+    pub fn test_window_split_above<E: WindowEditor>(editor: E) {
+        let current = editor.current_window().expect("get current window");
+        let win = editor
+            .new_split_window(
+                SplitConfig {
+                    direction: SplitDirection::Above,
+                    window: current.clone(),
+                    split_at: 5,
+                },
+                None,
+            )
+            .expect("Failed to create split-above window");
+
+        let dims = win
+            .lock_read()
+            .get_dimensions()
+            .expect("Failed to get dimensions");
+        assert_eq!(
+            dims.height, 5,
+            "Split-above window height should match split_at"
+        );
+
+        let win_pos = win
+            .lock_read()
+            .get_position()
+            .expect("Failed to get new window position");
+        let cur_pos = current
+            .lock_read()
+            .get_position()
+            .expect("Failed to get current window position");
+        assert!(
+            win_pos.row < cur_pos.row,
+            "Split-above window should be above current"
+        );
+
+        win.lock_write().close().expect("Failed to close window");
+    }
+
+    pub fn test_window_split_below<E: WindowEditor>(editor: E) {
+        let current = editor.current_window().expect("get current window");
+        let win = editor
+            .new_split_window(
+                SplitConfig {
+                    direction: SplitDirection::Below,
+                    window: current.clone(),
+                    split_at: 5,
+                },
+                None,
+            )
+            .expect("Failed to create split-below window");
+
+        let dims = win
+            .lock_read()
+            .get_dimensions()
+            .expect("Failed to get dimensions");
+        assert_eq!(
+            dims.height, 5,
+            "Split-below window height should match split_at"
+        );
+
+        let win_pos = win
+            .lock_read()
+            .get_position()
+            .expect("Failed to get new window position");
+        let cur_pos = current
+            .lock_read()
+            .get_position()
+            .expect("Failed to get current window position");
+        assert!(
+            win_pos.row > cur_pos.row,
+            "Split-below window should be below current"
+        );
+
+        win.lock_write().close().expect("Failed to close window");
+    }
+
+    pub fn test_window_split_left<E: WindowEditor>(editor: E) {
+        let current = editor.current_window().expect("get current window");
+        let win = editor
+            .new_split_window(
+                SplitConfig {
+                    direction: SplitDirection::Left,
+                    window: current.clone(),
+                    split_at: 5,
+                },
+                None,
+            )
+            .expect("Failed to create split-left window");
+
+        let dims = win
+            .lock_read()
+            .get_dimensions()
+            .expect("Failed to get dimensions");
+        assert_eq!(
+            dims.width, 5,
+            "Split-left window width should match split_at"
+        );
+
+        let win_pos = win
+            .lock_read()
+            .get_position()
+            .expect("Failed to get new window position");
+        let cur_pos = current
+            .lock_read()
+            .get_position()
+            .expect("Failed to get current window position");
+        assert!(
+            win_pos.col < cur_pos.col,
+            "Split-left window should be left of current"
+        );
+
+        win.lock_write().close().expect("Failed to close window");
+    }
+
+    pub fn test_window_split_right<E: WindowEditor>(editor: E) {
+        let current = editor.current_window().expect("get current window");
+        let win = editor
+            .new_split_window(
+                SplitConfig {
+                    direction: SplitDirection::Right,
+                    window: current.clone(),
+                    split_at: 5,
+                },
+                None,
+            )
+            .expect("Failed to create split-right window");
+
+        let dims = win
+            .lock_read()
+            .get_dimensions()
+            .expect("Failed to get dimensions");
+        assert_eq!(
+            dims.width, 5,
+            "Split-right window width should match split_at"
+        );
+
+        let win_pos = win
+            .lock_read()
+            .get_position()
+            .expect("Failed to get new window position");
+        let cur_pos = current
+            .lock_read()
+            .get_position()
+            .expect("Failed to get current window position");
+        assert!(
+            win_pos.col > cur_pos.col,
+            "Split-right window should be right of current"
+        );
+
+        win.lock_write().close().expect("Failed to close window");
+    }
+
+    pub fn test_window_split<E: WindowEditor>(editor: E) {
+        let current = editor.current_window().expect("get current window");
+        let win1 = editor
+            .new_split_window(
+                SplitConfig {
+                    direction: SplitDirection::Below,
+                    window: current,
+                    split_at: 10,
+                },
+                None,
+            )
+            .expect("Failed to create win1");
+
+        let win2 = editor
+            .new_split_window(
+                SplitConfig {
+                    direction: SplitDirection::Right,
+                    window: win1.clone(),
+                    split_at: 10,
+                },
+                None,
+            )
+            .expect("Failed to split win1");
+
+        let windows = editor.list_windows().expect("list_windows should succeed");
+        assert!(windows.contains(&win1), "list_windows should contain win1");
+        assert!(windows.contains(&win2), "list_windows should contain win2");
+
+        win2.lock_write().close().expect("Failed to close win2");
+        win1.lock_write().close().expect("Failed to close win1");
+    }
+
+    pub fn test_window_float<E: WindowEditor>(editor: E) {
+        let config = FloatConfig {
+            position: WindowPosition { row: 1, col: 2 },
+            dimensions: WindowDimensions {
+                width: 20,
+                height: 10,
+            },
+            focusable: true,
+            z_index: 50,
+        };
+
+        let win = editor
+            .new_float_window(config, None)
+            .expect("Failed to create floating window");
+
+        let dims = win
+            .lock_read()
+            .get_dimensions()
+            .expect("Failed to get float dimensions");
+        assert_eq!(dims.width, 20, "Float window width should match config");
+        assert_eq!(dims.height, 10, "Float window height should match config");
+
+        let pos = win
+            .lock_read()
+            .get_position()
+            .expect("get_position should succeed on a float window");
+        assert_eq!(
+            pos,
+            WindowPosition { row: 1, col: 2 },
+            "Float window position should match config"
+        );
+
+        let windows = editor.list_windows().expect("list_windows should succeed");
+        assert!(
+            windows.contains(&win),
+            "list_windows should contain float window"
+        );
+
+        win.lock_write()
+            .close()
+            .expect("Failed to close float window");
     }
 
     #[macro_export]
@@ -410,6 +749,13 @@ pub mod tests {
                     test_window_atomic_read,
                     test_window_atomic_write,
                     test_window_list,
+                    test_window_get_position,
+                    test_window_split_above,
+                    test_window_split_below,
+                    test_window_split_left,
+                    test_window_split_right,
+                    test_window_split,
+                    test_window_float,
                 ],
             );
         };

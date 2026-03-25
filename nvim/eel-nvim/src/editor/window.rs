@@ -1,6 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
-use eel::window::{ReadWindowLock, WindowEditor, WindowId, WindowStoreHandle, WriteWindowLock};
+use eel::window::{
+    ReadWindowLock, WindowDimensions, WindowEditor, WindowId, WindowOpenConfig, WindowPosition,
+    WindowStoreHandle, WriteWindowLock,
+};
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::{
@@ -75,23 +78,29 @@ impl ReadWindowLock for NvimWindowStore {
         Ok(self.windows.get(&id.0).and_then(|e| e.buffer.clone()))
     }
 
-    fn get_width(&self, id: NvimWindowId) -> eel::Result<usize> {
+    fn get_dimensions(&self, id: NvimWindowId) -> eel::Result<WindowDimensions> {
         let dispatcher = self.dispatcher.clone();
         let width = dispatcher
             .dispatch(move || nvim_oxi::api::Window::from(id.0).get_width().into_nvim())??;
-        Ok(width as usize)
-    }
-
-    fn get_height(&self, id: NvimWindowId) -> eel::Result<usize> {
-        let dispatcher = self.dispatcher.clone();
         let height = dispatcher
             .dispatch(move || nvim_oxi::api::Window::from(id.0).get_height().into_nvim())??;
-        Ok(height as usize)
+        Ok(WindowDimensions { width: width as usize, height: height as usize })
+    }
+
+    fn get_position(&self, id: NvimWindowId) -> eel::Result<WindowPosition> {
+        let dispatcher = self.dispatcher.clone();
+        let (row, col) = dispatcher
+            .dispatch(move || nvim_oxi::api::Window::from(id.0).get_position().into_nvim())??;
+        Ok(WindowPosition { row, col })
     }
 }
 
 impl WriteWindowLock for NvimWindowStore {
-    fn new_window(&mut self, buffer: Option<&NvimBufferHandle>) -> eel::Result<NvimWindowId> {
+    fn new_window(
+        &mut self,
+        buffer: Option<&NvimBufferHandle>,
+        config: WindowOpenConfig<NvimWindowId>,
+    ) -> eel::Result<NvimWindowId> {
         let dispatcher = self.dispatcher.clone();
         let buf_id: Option<i32> = buffer.map(|h| h.id);
 
@@ -103,11 +112,49 @@ impl WriteWindowLock for NvimWindowStore {
                     nvim_oxi::api::create_buf(false, true).into_nvim()?
                 };
 
-                let config = nvim_oxi::api::types::WindowConfig::builder()
-                    .split(nvim_oxi::api::types::SplitDirection::Below)
-                    .build();
+                let mut nvim_config = nvim_oxi::api::types::WindowConfig::default();
 
-                nvim_oxi::api::open_win(&buf, false, &config).into_nvim()
+                match config {
+                    WindowOpenConfig::Split(split) => {
+                        nvim_config.split = Some(match split.direction {
+                            eel::window::SplitDirection::Above => {
+                                nvim_oxi::api::types::SplitDirection::Above
+                            }
+                            eel::window::SplitDirection::Below => {
+                                nvim_oxi::api::types::SplitDirection::Below
+                            }
+                            eel::window::SplitDirection::Left => {
+                                nvim_oxi::api::types::SplitDirection::Left
+                            }
+                            eel::window::SplitDirection::Right => {
+                                nvim_oxi::api::types::SplitDirection::Right
+                            }
+                        });
+                        nvim_config.win = Some(nvim_oxi::api::Window::from(split.window.0));
+                        match split.direction {
+                            eel::window::SplitDirection::Left
+                            | eel::window::SplitDirection::Right => {
+                                nvim_config.width = Some(split.split_at as u32);
+                            }
+                            eel::window::SplitDirection::Above
+                            | eel::window::SplitDirection::Below => {
+                                nvim_config.height = Some(split.split_at as u32);
+                            }
+                        }
+                    }
+                    WindowOpenConfig::Float(float) => {
+                        nvim_config.relative = Some(nvim_oxi::api::types::WindowRelativeTo::Editor);
+                        nvim_config.anchor = Some(nvim_oxi::api::types::WindowAnchor::NorthWest);
+                        nvim_config.row = Some(float.position.row as f64);
+                        nvim_config.col = Some(float.position.col as f64);
+                        nvim_config.width = Some(float.dimensions.width as u32);
+                        nvim_config.height = Some(float.dimensions.height as u32);
+                        nvim_config.focusable = Some(float.focusable);
+                        nvim_config.zindex = Some(float.z_index);
+                    }
+                }
+
+                nvim_oxi::api::open_win(&buf, false, &nvim_config).into_nvim()
             },
         )??;
 
