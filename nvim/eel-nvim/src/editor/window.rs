@@ -67,6 +67,10 @@ impl ReadWindowLock for NvimWindowStore {
         Ok(NvimWindowId(win.handle()))
     }
 
+    fn list_window_ids(&self) -> eel::Result<Vec<NvimWindowId>> {
+        Ok(self.windows.keys().map(|&id| NvimWindowId(id)).collect())
+    }
+
     fn get_buffer(&self, id: NvimWindowId) -> eel::Result<Option<NvimBufferHandle>> {
         Ok(self.windows.get(&id.0).and_then(|e| e.buffer.clone()))
     }

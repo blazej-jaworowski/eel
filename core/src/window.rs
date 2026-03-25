@@ -13,6 +13,7 @@ pub trait ReadWindowLock {
     type BufferHandle: BufferHandle;
 
     fn current_window_id(&self) -> Result<Self::WindowId>;
+    fn list_window_ids(&self) -> Result<Vec<Self::WindowId>>;
     fn get_buffer(&self, id: Self::WindowId) -> Result<Option<Self::BufferHandle>>;
 
     fn get_width(&self, id: Self::WindowId) -> Result<usize>;
@@ -35,6 +36,10 @@ impl<L: ReadWindowLock, D: std::ops::Deref<Target = L>> ReadWindowLock for D {
 
     fn current_window_id(&self) -> Result<Self::WindowId> {
         (**self).current_window_id()
+    }
+
+    fn list_window_ids(&self) -> Result<Vec<Self::WindowId>> {
+        (**self).list_window_ids()
     }
 
     fn get_buffer(&self, id: Self::WindowId) -> Result<Option<Self::BufferHandle>> {
@@ -106,6 +111,12 @@ pub trait WindowEditor: crate::Editor {
         let store = self.get_window_store();
         let id = store.windows_read().current_window_id()?;
         Ok(Window { id, store })
+    }
+
+    fn list_windows(&self) -> Result<Vec<Window<Self::WindowStoreHandle>>> {
+        let store = self.get_window_store();
+        let ids = store.windows_read().list_window_ids()?;
+        Ok(ids.into_iter().map(|id| Window { id, store: store.clone() }).collect())
     }
 }
 
@@ -358,6 +369,25 @@ pub mod tests {
         win2.lock_write().close().expect("close win2");
     }
 
+    pub fn test_window_list<E: WindowEditor>(editor: E) {
+        let win1 = editor.new_window(None).expect("Failed to create window 1");
+        let win2 = editor.new_window(None).expect("Failed to create window 2");
+
+        let windows = editor.list_windows().expect("list_windows should succeed");
+
+        assert!(
+            windows.contains(&win1),
+            "list_windows should contain win1"
+        );
+        assert!(
+            windows.contains(&win2),
+            "list_windows should contain win2"
+        );
+
+        win1.lock_write().close().expect("close win1");
+        win2.lock_write().close().expect("close win2");
+    }
+
     #[macro_export]
     macro_rules! eel_window_tests {
         ($test_tag:path, $editor_factory:expr, $prefix:tt) => {
@@ -379,6 +409,7 @@ pub mod tests {
                     test_window_set_current,
                     test_window_atomic_read,
                     test_window_atomic_write,
+                    test_window_list,
                 ],
             );
         };
