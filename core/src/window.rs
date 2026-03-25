@@ -1,9 +1,18 @@
 use crate::{Result, buffer::BufferHandle};
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, PartialEq)]
 pub enum Error {
     #[error("Invalid window")]
     InvalidWindow,
+
+    #[error("Cannot split a floating window")]
+    CannotSplitFloat,
+
+    #[error("Invalid split_at: {split_at} (must be between 1 and {limit})")]
+    InvalidSplitAt { split_at: usize, limit: usize },
+
+    #[error("Floating window is out of bounds")]
+    FloatOutOfBounds,
 }
 
 pub trait WindowId: Copy + Eq + std::fmt::Debug + Send + Sync {}
@@ -69,6 +78,7 @@ pub trait ReadWindowLock {
 
     fn get_dimensions(&self, id: Self::WindowId) -> Result<WindowDimensions>;
     fn get_position(&self, id: Self::WindowId) -> Result<WindowPosition>;
+    fn is_floating(&self, id: Self::WindowId) -> Result<bool>;
 }
 
 pub trait WriteWindowLock: ReadWindowLock {
@@ -107,6 +117,10 @@ impl<L: ReadWindowLock, D: std::ops::Deref<Target = L>> ReadWindowLock for D {
 
     fn get_position(&self, id: Self::WindowId) -> Result<WindowPosition> {
         (**self).get_position(id)
+    }
+
+    fn is_floating(&self, id: Self::WindowId) -> Result<bool> {
+        (**self).is_floating(id)
     }
 }
 
@@ -256,6 +270,10 @@ impl<L: ReadWindowLock> WindowAccess<L> {
 
     pub fn get_position(&self) -> Result<WindowPosition> {
         self.lock.get_position(self.id)
+    }
+
+    pub fn is_floating(&self) -> Result<bool> {
+        self.lock.is_floating(self.id)
     }
 }
 
@@ -727,6 +745,139 @@ pub mod tests {
             .expect("Failed to close float window");
     }
 
+    pub fn test_window_is_floating<E: WindowEditor>(editor: E) {
+        let float_win = new_window(&editor, None);
+        let current = editor.current_window().expect("get current window");
+        let split_win = editor
+            .new_split_window(
+                SplitConfig {
+                    direction: SplitDirection::Below,
+                    window: current,
+                    split_at: 5,
+                },
+                None,
+            )
+            .expect("create split window");
+
+        assert!(
+            float_win
+                .lock_read()
+                .is_floating()
+                .expect("is_floating on float"),
+            "float window should report is_floating = true"
+        );
+        assert!(
+            !split_win
+                .lock_read()
+                .is_floating()
+                .expect("is_floating on split"),
+            "split window should report is_floating = false"
+        );
+
+        float_win.lock_write().close().expect("close float");
+        split_win.lock_write().close().expect("close split");
+    }
+
+    pub fn test_window_invalid_id<E: WindowEditor>(editor: E) {
+        let win = new_window(&editor, None);
+        win.lock_write().close().expect("close window");
+        let result = win.lock_read().is_floating();
+        assert!(
+            matches!(result, Err(crate::Error::Window(Error::InvalidWindow))),
+            "expected InvalidWindow after close, got {result:?}"
+        );
+    }
+
+    pub fn test_window_split_float_error<E: WindowEditor>(editor: E) {
+        let float_win = new_window(&editor, None);
+        let result = editor.new_split_window(
+            SplitConfig {
+                direction: SplitDirection::Below,
+                window: float_win.clone(),
+                split_at: 5,
+            },
+            None,
+        );
+        assert!(
+            matches!(result, Err(crate::Error::Window(Error::CannotSplitFloat))),
+            "expected CannotSplitFloat, got {result:?}"
+        );
+        float_win.lock_write().close().expect("close float");
+    }
+
+    pub fn test_window_split_at_zero<E: WindowEditor>(editor: E) {
+        let current = editor.current_window().expect("get current window");
+        let height = current
+            .lock_read()
+            .get_dimensions()
+            .expect("get dims")
+            .height;
+        let result = editor.new_split_window(
+            SplitConfig {
+                direction: SplitDirection::Below,
+                window: current,
+                split_at: 0,
+            },
+            None,
+        );
+        let crate::Error::Window(err) = result.unwrap_err() else {
+            panic!("expected Window error for split_at=0");
+        };
+        assert_eq!(
+            err,
+            Error::InvalidSplitAt {
+                split_at: 0,
+                limit: height - 1
+            }
+        );
+    }
+
+    pub fn test_window_split_at_full<E: WindowEditor>(editor: E) {
+        let current = editor.current_window().expect("get current window");
+        let height = current
+            .lock_read()
+            .get_dimensions()
+            .expect("get dims")
+            .height;
+        let result = editor.new_split_window(
+            SplitConfig {
+                direction: SplitDirection::Below,
+                window: current,
+                split_at: height,
+            },
+            None,
+        );
+        let crate::Error::Window(err) = result.unwrap_err() else {
+            panic!("expected Window error for split_at=full height");
+        };
+        assert_eq!(
+            err,
+            Error::InvalidSplitAt {
+                split_at: height,
+                limit: height - 1
+            }
+        );
+    }
+
+    pub fn test_window_float_out_of_bounds<E: WindowEditor>(editor: E) {
+        let result = editor.new_float_window(
+            FloatConfig {
+                position: WindowPosition { row: 0, col: 0 },
+                dimensions: WindowDimensions {
+                    width: usize::MAX,
+                    height: usize::MAX,
+                },
+                focusable: false,
+                z_index: 1,
+            },
+            None,
+        );
+        assert!(
+            matches!(result, Err(crate::Error::Window(Error::FloatOutOfBounds))),
+            "expected FloatOutOfBounds, got {result:?}"
+        );
+    }
+
     #[macro_export]
     macro_rules! eel_window_tests {
         ($test_tag:path, $editor_factory:expr, $prefix:tt) => {
@@ -756,6 +907,12 @@ pub mod tests {
                     test_window_split_right,
                     test_window_split,
                     test_window_float,
+                    test_window_is_floating,
+                    test_window_invalid_id,
+                    test_window_split_float_error,
+                    test_window_split_at_zero,
+                    test_window_split_at_full,
+                    test_window_float_out_of_bounds,
                 ],
             );
         };
