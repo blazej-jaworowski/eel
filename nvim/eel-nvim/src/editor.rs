@@ -159,7 +159,7 @@ mod window_editor {
         buffer: Option<NvimBufferHandle>,
     }
 
-    struct NvimWindowStore {
+    pub struct NvimWindowStore {
         windows: HashMap<i32, NvimWindowEntry>,
         dispatcher: Arc<Dispatcher>,
     }
@@ -201,70 +201,38 @@ mod window_editor {
 
     impl Eq for NvimWindowStoreHandle {}
 
-    pub struct NvimReadWindowLock<'lock>(RwLockReadGuard<'lock, NvimWindowStore>);
-    pub struct NvimWriteWindowLock<'lock>(RwLockWriteGuard<'lock, NvimWindowStore>);
-
-    impl ReadWindowLock for NvimReadWindowLock<'_> {
+    impl ReadWindowLock for NvimWindowStore {
         type WindowId = NvimWindowId;
         type BufferHandle = NvimBufferHandle;
 
         fn current_window_id(&self) -> eel::Result<NvimWindowId> {
-            let dispatcher = self.0.dispatcher.clone();
+            let dispatcher = self.dispatcher.clone();
             let win = dispatcher.dispatch(nvim_oxi::api::get_current_win)?;
             Ok(NvimWindowId(win.handle()))
         }
 
         fn get_buffer(&self, id: NvimWindowId) -> eel::Result<Option<NvimBufferHandle>> {
-            Ok(self.0.windows.get(&id.0).and_then(|e| e.buffer.clone()))
+            Ok(self.windows.get(&id.0).and_then(|e| e.buffer.clone()))
         }
 
         fn get_width(&self, id: NvimWindowId) -> eel::Result<usize> {
-            let dispatcher = self.0.dispatcher.clone();
+            let dispatcher = self.dispatcher.clone();
             let width = dispatcher
                 .dispatch(move || nvim_oxi::api::Window::from(id.0).get_width().into_nvim())??;
             Ok(width as usize)
         }
 
         fn get_height(&self, id: NvimWindowId) -> eel::Result<usize> {
-            let dispatcher = self.0.dispatcher.clone();
+            let dispatcher = self.dispatcher.clone();
             let height = dispatcher
                 .dispatch(move || nvim_oxi::api::Window::from(id.0).get_height().into_nvim())??;
             Ok(height as usize)
         }
     }
 
-    impl ReadWindowLock for NvimWriteWindowLock<'_> {
-        type WindowId = NvimWindowId;
-        type BufferHandle = NvimBufferHandle;
-
-        fn current_window_id(&self) -> eel::Result<NvimWindowId> {
-            let dispatcher = self.0.dispatcher.clone();
-            let win = dispatcher.dispatch(nvim_oxi::api::get_current_win)?;
-            Ok(NvimWindowId(win.handle()))
-        }
-
-        fn get_buffer(&self, id: NvimWindowId) -> eel::Result<Option<NvimBufferHandle>> {
-            Ok(self.0.windows.get(&id.0).and_then(|e| e.buffer.clone()))
-        }
-
-        fn get_width(&self, id: NvimWindowId) -> eel::Result<usize> {
-            let dispatcher = self.0.dispatcher.clone();
-            let width = dispatcher
-                .dispatch(move || nvim_oxi::api::Window::from(id.0).get_width().into_nvim())??;
-            Ok(width as usize)
-        }
-
-        fn get_height(&self, id: NvimWindowId) -> eel::Result<usize> {
-            let dispatcher = self.0.dispatcher.clone();
-            let height = dispatcher
-                .dispatch(move || nvim_oxi::api::Window::from(id.0).get_height().into_nvim())??;
-            Ok(height as usize)
-        }
-    }
-
-    impl WriteWindowLock for NvimWriteWindowLock<'_> {
+    impl WriteWindowLock for NvimWindowStore {
         fn new_window(&mut self, buffer: Option<&NvimBufferHandle>) -> eel::Result<NvimWindowId> {
-            let dispatcher = self.0.dispatcher.clone();
+            let dispatcher = self.dispatcher.clone();
             let buf_id: Option<i32> = buffer.map(|h| h.id);
 
             let win = dispatcher.dispatch(
@@ -284,7 +252,7 @@ mod window_editor {
             )??;
 
             let id = NvimWindowId(win.handle());
-            self.0.windows.insert(
+            self.windows.insert(
                 id.0,
                 NvimWindowEntry {
                     buffer: buffer.cloned(),
@@ -295,15 +263,15 @@ mod window_editor {
         }
 
         fn close_window(&mut self, id: NvimWindowId) -> eel::Result<()> {
-            let dispatcher = self.0.dispatcher.clone();
+            let dispatcher = self.dispatcher.clone();
             dispatcher
                 .dispatch(move || nvim_oxi::api::Window::from(id.0).close(true).into_nvim())??;
-            self.0.windows.remove(&id.0);
+            self.windows.remove(&id.0);
             Ok(())
         }
 
         fn set_current(&mut self, id: NvimWindowId) -> eel::Result<()> {
-            let dispatcher = self.0.dispatcher.clone();
+            let dispatcher = self.dispatcher.clone();
             dispatcher.dispatch(move || {
                 let win = nvim_oxi::api::Window::from(id.0);
                 nvim_oxi::api::set_current_win(&win).into_nvim()
@@ -320,7 +288,7 @@ mod window_editor {
                 return Ok(());
             };
 
-            let dispatcher = self.0.dispatcher.clone();
+            let dispatcher = self.dispatcher.clone();
             let buf_id = buf_handle.id;
 
             dispatcher.dispatch(move || {
@@ -329,8 +297,7 @@ mod window_editor {
                 win.set_buf(&buf).into_nvim()
             })??;
 
-            self.0
-                .windows
+            self.windows
                 .entry(id.0)
                 .and_modify(|e| e.buffer = Some(buf_handle.clone()))
                 .or_insert_with(|| NvimWindowEntry {
@@ -345,20 +312,20 @@ mod window_editor {
         type WindowId = NvimWindowId;
         type BufferHandle = NvimBufferHandle;
         type ReadLock<'lock>
-            = NvimReadWindowLock<'lock>
+            = RwLockReadGuard<'lock, NvimWindowStore>
         where
             Self: 'lock;
         type WriteLock<'lock>
-            = NvimWriteWindowLock<'lock>
+            = RwLockWriteGuard<'lock, NvimWindowStore>
         where
             Self: 'lock;
 
-        fn windows_read(&self) -> NvimReadWindowLock<'_> {
-            NvimReadWindowLock(self.0.read())
+        fn windows_read(&self) -> Self::ReadLock<'_> {
+            self.0.read()
         }
 
-        fn windows_write(&self) -> NvimWriteWindowLock<'_> {
-            NvimWriteWindowLock(self.0.write())
+        fn windows_write(&self) -> Self::WriteLock<'_> {
+            self.0.write()
         }
     }
 
