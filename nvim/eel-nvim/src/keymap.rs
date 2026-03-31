@@ -3,6 +3,7 @@ use eel::keymap::{
     KeyEditor, KeyPress,
     key::{Key, Modifiers, SpecialKey},
 };
+use nvim_oxi::api::types::Mode;
 
 use crate::{editor::NvimEditor, error::Error as NvimError};
 
@@ -86,6 +87,22 @@ fn parse_angle_bracket(inner: &str) -> Option<KeyPress> {
     Some(KeyPress::new(key, mods))
 }
 
+/// Clear all user-defined keymaps for a given mode so that raw keypresses
+/// reach the `vim.on_key` handler without mapping expansion.
+fn clear_keymaps_for_mode(mode: Mode) {
+    use std::panic::catch_unwind;
+
+    catch_unwind(|| {
+        for binding in nvim_oxi::api::get_keymap(mode) {
+            if binding.lhs.starts_with("<Plug>") {
+                continue;
+            }
+            let _ = nvim_oxi::api::del_keymap(mode, &binding.lhs);
+        }
+    })
+    .ok();
+}
+
 impl KeyEditor for NvimEditor {
     fn capture_keys<F>(&self, callback: F) -> Result<()>
     where
@@ -93,6 +110,12 @@ impl KeyEditor for NvimEditor {
     {
         self.dispatch(move || -> std::result::Result<(), NvimError> {
             use nvim_oxi::mlua::{self, lua};
+
+            // Clear all user-defined keymaps so every key goes directly to
+            // this handler without being intercepted by mapping expansion.
+            for mode in [Mode::Normal, Mode::Insert, Mode::Visual] {
+                clear_keymaps_for_mode(mode);
+            }
 
             let ns_id = nvim_oxi::api::create_namespace("eel");
 
