@@ -149,6 +149,12 @@ pub struct NvimBufferHandle {
     buffer_lock: Weak<RwLock<NvimBuffer>>,
 }
 
+impl std::hash::Hash for NvimBufferHandle {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
 impl NvimBufferHandle {
     pub(crate) fn new(id: i32, arc: &Arc<RwLock<NvimBuffer>>) -> Self {
         Self {

@@ -26,6 +26,9 @@ pub mod region;
 #[cfg(feature = "window")]
 pub mod window;
 
+#[cfg(feature = "keymap")]
+pub mod keymap;
+
 #[cfg(feature = "tests")]
 pub mod test_utils;
 
