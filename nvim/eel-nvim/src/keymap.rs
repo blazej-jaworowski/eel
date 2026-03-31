@@ -37,12 +37,10 @@ fn parse_angle_bracket(inner: &str) -> Option<KeyPress> {
         } else if let Some(r) = rest.strip_prefix("S-") {
             mods.shift = true;
             rest = r;
-        } else if let Some(r) = rest.strip_prefix("A-") {
-            mods.meta = true;
-            rest = r;
-        } else if let Some(r) = rest.strip_prefix("M-") {
-            mods.meta = true;
-            rest = r;
+        } else if rest.strip_prefix("A-").is_some() || rest.strip_prefix("M-").is_some() {
+            // Meta/Alt: not representable in our KeyPress model (terminal converts
+            // Alt+key to a Unicode character before nvim sees it on this system).
+            return None;
         } else {
             break;
         }
@@ -176,10 +174,9 @@ mod tests {
         };
 
         let mods = format!(
-            "{}{}{}",
+            "{}{}",
             if kp.modifiers.ctrl { "C-" } else { "" },
             if kp.modifiers.shift { "S-" } else { "" },
-            if kp.modifiers.meta { "M-" } else { "" },
         );
 
         format!("<{mods}{key_str}>")

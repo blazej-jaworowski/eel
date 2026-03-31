@@ -28,7 +28,6 @@ pub enum Key {
 pub struct Modifiers {
     pub ctrl: bool,
     pub shift: bool,
-    pub meta: bool,
 }
 
 impl Modifiers {
@@ -46,13 +45,6 @@ impl Modifiers {
     pub fn shift() -> Self {
         Self {
             shift: true,
-            ..Default::default()
-        }
-    }
-
-    pub fn meta() -> Self {
-        Self {
-            meta: true,
             ..Default::default()
         }
     }

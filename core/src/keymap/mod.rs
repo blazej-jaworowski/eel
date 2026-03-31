@@ -251,9 +251,6 @@ pub mod tests {
             // Ctrl+letter (raw control bytes 0x01–0x1A)
             KeyPress::new(Key::Char('a'), Modifiers::ctrl()),
             KeyPress::new(Key::Char('z'), Modifiers::ctrl()),
-            // Meta (Alt) combos
-            KeyPress::new(Key::Char('a'), Modifiers::meta()),
-            KeyPress::new(Key::Char('z'), Modifiers::meta()),
             // Special keys (single raw bytes)
             KeyPress::special(SpecialKey::Enter),
             KeyPress::special(SpecialKey::Tab),
