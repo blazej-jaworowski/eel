@@ -136,6 +136,29 @@ impl<E: Editor> Keymap<E> {
     }
 }
 
+impl<E: Editor> Keymap<E> {
+    /// Match `seq` against this keymap's bindings, giving local bindings
+    /// priority over global ones.
+    pub(crate) fn match_sequence(
+        &self,
+        buf: Option<&E::BufferHandle>,
+        seq: &[KeyPress],
+    ) -> MatchResult<Arc<dyn KeyAction<E>>>
+    where
+        E::BufferHandle: Hash,
+    {
+        let local = buf
+            .and_then(|b| self.local.get(b))
+            .map(|bind| bind.match_sequence(seq))
+            .unwrap_or(MatchResult::NoMatch);
+
+        match local {
+            MatchResult::NoMatch => self.global.match_sequence(seq),
+            other => other,
+        }
+    }
+}
+
 impl<E: KeyEditor + 'static> Keymap<E> {
     /// Activate this keymap on `editor`.
     ///
@@ -145,11 +168,11 @@ impl<E: KeyEditor + 'static> Keymap<E> {
     ///   accumulator is reset.
     /// - **Partial match only**: accumulator grows, waiting for the next key.
     /// - **No match**: accumulator is silently reset.
-    pub fn activate(&self, editor: Arc<E>) -> Result<()>
+    pub fn activate(self, editor: Arc<E>) -> Result<()>
     where
         E::BufferHandle: Hash,
     {
-        let keymap = Arc::new(self.clone());
+        let keymap = Arc::new(self);
         let editor_for_cb = Arc::clone(&editor);
         let current_seq: Arc<Mutex<KeySequence>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -158,17 +181,7 @@ impl<E: KeyEditor + 'static> Keymap<E> {
             seq.push(key_press.clone());
 
             let current_buf = editor_for_cb.current_buffer().ok();
-            let local = current_buf
-                .as_ref()
-                .and_then(|buf| keymap.local.get(buf))
-                .map(|bind| bind.match_sequence(&seq))
-                .unwrap_or(MatchResult::NoMatch);
-
-            // Local bindings take priority; fall back to global.
-            let result = match local {
-                MatchResult::NoMatch => keymap.global.match_sequence(&seq),
-                other => other,
-            };
+            let result = keymap.match_sequence(current_buf.as_ref(), &seq);
 
             match result {
                 MatchResult::ExactMatch(action) => {

@@ -1,10 +1,14 @@
 pub mod action;
 pub mod key;
 pub mod map;
+#[cfg(feature = "modal")]
+pub mod modal;
 
 pub use action::KeyAction;
 pub use key::{Key, KeyPress, KeySequence, Modifiers, SpecialKey};
 pub use map::{KeyMapping, Keymap, MatchResult};
+#[cfg(feature = "modal")]
+pub use modal::{ModalKeymap, Mode, ModeController};
 
 use crate::{Editor, Result};
 

@@ -235,3 +235,13 @@ mod tests {
         crate::test_utils::nvim_editor_factory
     );
 }
+
+#[cfg(all(feature = "nvim-tests", feature = "modal"))]
+mod modal_tests {
+    use eel::eel_modal_tests;
+
+    eel_modal_tests!(
+        ::eel_nvim_macros::nvim_test,
+        crate::test_utils::nvim_editor_factory
+    );
+}

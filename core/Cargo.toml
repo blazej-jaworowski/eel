@@ -14,10 +14,11 @@ rayon = { version = "1.11.0", optional = true }
 sequence_trie = { version = "0.3.6", optional = true }
 
 [features]
-default = ["cursor", "mark", "region", "window", "keymap"]
+default = ["cursor", "mark", "region", "window", "keymap", "modal"]
 tests = ["dep:paste", "dep:rayon"]
 cursor = []
 mark = []
 region = ["mark"]
 window = []
 keymap = ["dep:sequence_trie"]
+modal = ["keymap"]
