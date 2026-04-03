@@ -227,9 +227,9 @@ pub mod tests {
             // Lowercase letters
             KeyPress::char('a'),
             KeyPress::char('z'),
-            // Shift+letter (normalized: Key::Char(lowercase) + shift)
-            KeyPress::char('A'), // = shift+a
-            KeyPress::char('Z'), // = shift+z
+            // Uppercase letters (canonical: Key::Char(uppercase) + no modifiers)
+            KeyPress::char('A'),
+            KeyPress::char('Z'),
             // Digits
             KeyPress::char('0'),
             KeyPress::char('9'),
@@ -245,12 +245,34 @@ pub mod tests {
             KeyPress::char(']'),
             KeyPress::char('-'),
             KeyPress::char('='),
+            // Shift-required symbol chars (plain Key::Char + no modifier in the model)
+            KeyPress::char('!'),
+            KeyPress::char('>'),
+            KeyPress::char('?'),
+            KeyPress::char('_'),
+            KeyPress::char('+'),
+            KeyPress::char('|'),
+            KeyPress::char('~'),
             // Edge chars that require angle-bracket notation
             KeyPress::char('<'),
             KeyPress::char('\\'),
-            // Ctrl+letter (raw control bytes 0x01–0x1A)
+            // Ctrl+letter
             KeyPress::new(Key::Char('a'), Modifiers::ctrl()),
             KeyPress::new(Key::Char('z'), Modifiers::ctrl()),
+            // Ctrl+digit
+            KeyPress::new(Key::Char('0'), Modifiers::ctrl()),
+            KeyPress::new(Key::Char('9'), Modifiers::ctrl()),
+            // Ctrl + angle-bracket / backslash
+            KeyPress::new(Key::Char('<'), Modifiers::ctrl()),
+            KeyPress::new(Key::Char('\\'), Modifiers::ctrl()),
+            // Ctrl+Shift+letter
+            KeyPress::new(
+                Key::Char('a'),
+                Modifiers {
+                    ctrl: true,
+                    shift: true,
+                },
+            ),
             // Special keys (single raw bytes)
             KeyPress::special(SpecialKey::Enter),
             KeyPress::special(SpecialKey::Tab),
@@ -267,8 +289,28 @@ pub mod tests {
             KeyPress::special(SpecialKey::PageDown),
             KeyPress::special(SpecialKey::Delete),
             KeyPress::special(SpecialKey::Insert),
+            // Ctrl + navigation keys
+            KeyPress::new(Key::Special(SpecialKey::Up), Modifiers::ctrl()),
+            KeyPress::new(Key::Special(SpecialKey::Down), Modifiers::ctrl()),
+            KeyPress::new(Key::Special(SpecialKey::Left), Modifiers::ctrl()),
+            KeyPress::new(Key::Special(SpecialKey::Right), Modifiers::ctrl()),
+            KeyPress::new(Key::Special(SpecialKey::Enter), Modifiers::ctrl()),
+            KeyPress::new(Key::Special(SpecialKey::Backspace), Modifiers::ctrl()),
+            // Shift + navigation/special keys
+            KeyPress::new(Key::Special(SpecialKey::Up), Modifiers::shift()),
+            KeyPress::new(Key::Special(SpecialKey::Down), Modifiers::shift()),
+            KeyPress::new(Key::Special(SpecialKey::Left), Modifiers::shift()),
+            KeyPress::new(Key::Special(SpecialKey::Right), Modifiers::shift()),
+            KeyPress::new(Key::Special(SpecialKey::Tab), Modifiers::shift()),
+            KeyPress::new(Key::Special(SpecialKey::Enter), Modifiers::shift()),
+            // Function keys
             KeyPress::special(SpecialKey::F(1)),
+            KeyPress::special(SpecialKey::F(6)),
             KeyPress::special(SpecialKey::F(12)),
+            // Modifier + function keys
+            KeyPress::new(Key::Special(SpecialKey::F(1)), Modifiers::shift()),
+            KeyPress::new(Key::Special(SpecialKey::F(12)), Modifiers::shift()),
+            KeyPress::new(Key::Special(SpecialKey::F(1)), Modifiers::ctrl()),
         ];
 
         let (tx, rx) = mpsc::channel::<KeyPress>();

@@ -62,11 +62,7 @@ impl KeyPress {
     }
 
     pub fn char(c: char) -> Self {
-        if c.is_ascii_uppercase() {
-            Self::new(Key::Char(c.to_ascii_lowercase()), Modifiers::shift())
-        } else {
-            Self::new(Key::Char(c), Modifiers::none())
-        }
+        Self::new(Key::Char(c), Modifiers::none())
     }
 
     pub fn special(s: SpecialKey) -> Self {

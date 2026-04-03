@@ -71,15 +71,17 @@ fn parse_angle_bracket(inner: &str) -> Option<KeyPress> {
         }
         s if s.chars().count() == 1 => {
             let c = s.chars().next()?;
-            // keytrans uppercases the char in modifier combos (<C-a> → <C-A>).
-            // This does NOT imply Shift — it is purely a notation convention.
-            // Normalise back to lowercase for a stable round-trip.
-            let c = if mods != Modifiers::none() {
-                c.to_ascii_lowercase()
+            if mods.ctrl {
+                // keytrans uppercases the char in ctrl combos (<C-a> → <C-A>).
+                // This does NOT imply Shift; normalise back to lowercase.
+                Key::Char(c.to_ascii_lowercase())
+            } else if mods.shift && c.is_ascii_alphabetic() {
+                // shift+letter: encode as the uppercase char, absorb shift into case.
+                mods.shift = false;
+                Key::Char(c.to_ascii_uppercase())
             } else {
-                c
-            };
-            Key::Char(c)
+                Key::Char(c)
+            }
         }
         s => Key::Special(SpecialKey::Unknown(s.to_string())),
     };
@@ -167,13 +169,10 @@ mod tests {
 
     fn key_press_to_notation(kp: &KeyPress) -> String {
         let key_str = match &kp.key {
-            Key::Char('<') => return "<LT>".to_string(),
-            Key::Char('\\') => return "<Bslash>".to_string(),
-            // Shift+ASCII-lowercase: send the uppercase char directly — a single
-            // byte that vim.fn.feedkeys passes through unchanged.
-            Key::Char(c) if kp.modifiers == Modifiers::shift() && c.is_ascii_lowercase() => {
-                return c.to_ascii_uppercase().to_string();
-            }
+            // These chars need angle-bracket notation regardless of modifiers, so
+            // produce them as key_str and fall through to the mod-building code.
+            Key::Char('<') => "LT".to_string(),
+            Key::Char('\\') => "Bslash".to_string(),
             Key::Char(c) if kp.modifiers == Modifiers::none() => return c.to_string(),
             Key::Char(c) => c.to_string(),
             Key::Special(s) => match s {
