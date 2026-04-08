@@ -1,12 +1,13 @@
 use std::{
     collections::HashMap,
+    fmt,
     sync::{Arc, Mutex},
 };
 
 use crate::Editor;
 
 use super::{
-    KeyPress,
+    KeyAction, KeyPress,
     map::{KeyMapping, Keymap, MatchResult},
 };
 
@@ -77,15 +78,16 @@ impl<M: Mode> ModeController<M> {
 ///
 /// To add buffer-local bindings or to activate the keymap, wrap this in a
 /// [`super::map::LocalizedKeymap`].
-pub struct ModalKeymap<E: Editor, M: Mode> {
+pub struct ModalKeymap<E: Editor, M: Mode, A: KeyAction<E> + Clone = Arc<dyn KeyAction<E>>> {
     pub(crate) state: Arc<Mutex<ModalState<M>>>,
-    bindings: HashMap<M, KeyMapping<E>>,
+    bindings: HashMap<M, KeyMapping<E, A>>,
 }
 
-impl<E, M> ModalKeymap<E, M>
+impl<E, M, A> ModalKeymap<E, M, A>
 where
     E: Editor,
     M: Mode,
+    A: KeyAction<E> + Clone,
 {
     pub fn new(initial: M) -> Self {
         Self {
@@ -129,12 +131,17 @@ where
     /// ```ignore
     /// km.keymap_for_mode(Mode::Normal).add_binding(&[kp('i')], action);
     /// ```
-    pub fn keymap_for_mode(&mut self, mode: M) -> &mut KeyMapping<E> {
+    pub fn keymap_for_mode(&mut self, mode: M) -> &mut KeyMapping<E, A> {
         self.bindings.entry(mode).or_default()
     }
 }
 
-impl<E: Editor, M: Mode> Clone for ModalKeymap<E, M> {
+impl<E, M, A> Clone for ModalKeymap<E, M, A>
+where
+    E: Editor,
+    M: Mode,
+    A: KeyAction<E> + Clone,
+{
     /// Creates an independent clone of this keymap.
     ///
     /// The clone has:
@@ -155,14 +162,21 @@ impl<E: Editor, M: Mode> Clone for ModalKeymap<E, M> {
     }
 }
 
-impl<E: Editor, M: Mode> Keymap<E> for ModalKeymap<E, M> {
+impl<E, M, A> Keymap<E> for ModalKeymap<E, M, A>
+where
+    E: Editor,
+    M: Mode,
+    A: KeyAction<E> + Clone,
+{
+    type Action = A;
+
     /// Match `seq` against the bindings for the current mode.
     ///
     /// On the first key of a new sequence (`seq.len() == 1`), sets the
     /// `accumulating` flag.  If the flag was cleared by a mode change before
     /// a subsequent key arrives (`seq.len() > 1 && !accumulating`), returns
     /// [`MatchResult::NoMatch`] so the external accumulator resets cleanly.
-    fn match_sequence(&self, seq: &[KeyPress]) -> MatchResult<Arc<dyn super::KeyAction<E>>> {
+    fn match_sequence(&self, seq: &[KeyPress]) -> MatchResult<A> {
         let mut s = self.state.lock().unwrap();
         if seq.len() == 1 {
             s.accumulating = true;
@@ -177,6 +191,79 @@ impl<E: Editor, M: Mode> Keymap<E> for ModalKeymap<E, M> {
             None => MatchResult::NoMatch,
         }
     }
+}
+
+impl<E, M, A> fmt::Debug for ModalKeymap<E, M, A>
+where
+    E: Editor,
+    M: Mode + fmt::Debug,
+    A: KeyAction<E> + Clone,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mode = self.state.lock().unwrap().mode.clone();
+        f.debug_struct("ModalKeymap")
+            .field("current_mode", &mode)
+            .field("bindings", &self.bindings)
+            .finish()
+    }
+}
+
+/// Two [`ModalKeymap`]s are equal if they have the same current mode and the
+/// same bindings (key sequences **and** actions) for every mode.
+impl<E, M, A> PartialEq for ModalKeymap<E, M, A>
+where
+    E: Editor,
+    M: Mode,
+    A: KeyAction<E> + Clone + PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        let a_mode = self.state.lock().unwrap().mode.clone();
+        let b_mode = other.state.lock().unwrap().mode.clone();
+        a_mode == b_mode && self.bindings == other.bindings
+    }
+}
+
+impl<E, M, A> Eq for ModalKeymap<E, M, A>
+where
+    E: Editor,
+    M: Mode,
+    A: KeyAction<E> + Clone + PartialEq + Eq,
+{
+}
+
+/// Build a [`ModalKeymap`] from a list of `[Mode, …]: { bindings }` groups.
+///
+/// Multiple modes may share the same binding block — the block is expanded
+/// once and the resulting [`KeyMapping`] is cloned into each mode slot.
+///
+/// ```ignore
+/// let km = modal_keymap! {
+///     initial: MyMode::Normal,
+///     [MyMode::Normal, MyMode::Visual]: {
+///         "j" => move_action,
+///     },
+///     [MyMode::Insert]: {
+///         "<Escape>" => leave_insert,
+///     },
+/// };
+/// ```
+#[macro_export]
+macro_rules! modal_keymap {
+    (
+        initial: $initial:expr,
+        $(
+            [ $( $mode:expr ),+ $(,)? ]: $bindings:tt
+        ),* $(,)?
+    ) => {{
+        let mut _m = $crate::keymap::modal::ModalKeymap::new($initial);
+        $(
+            {
+                let _km = $crate::keymap! $bindings;
+                $( *_m.keymap_for_mode($mode) = _km.clone(); )+
+            }
+        )*
+        _m
+    }};
 }
 
 #[cfg(feature = "tests")]
@@ -218,7 +305,7 @@ pub mod tests {
         // Binding only exists in mode B.
         inner
             .keymap_for_mode(TestMode::B)
-            .add_binding(&[kp('a')], move |_: &E| {
+            .bind(&[kp('a')], move |_: &E| {
                 tx.send('x').unwrap();
                 Ok(())
             });
@@ -252,7 +339,7 @@ pub mod tests {
             let mc = mc.clone();
             inner
                 .keymap_for_mode(TestMode::A)
-                .add_binding(&[kp('i')], move |_: &E| {
+                .bind(&[kp('i')], move |_: &E| {
                     mc.set_mode(TestMode::B);
                     Ok(())
                 });
@@ -262,7 +349,7 @@ pub mod tests {
             let tx_a = tx.clone();
             inner
                 .keymap_for_mode(TestMode::A)
-                .add_binding(&[kp('a')], move |_: &E| {
+                .bind(&[kp('a')], move |_: &E| {
                     tx_a.send('y').unwrap();
                     Ok(())
                 });
@@ -271,7 +358,7 @@ pub mod tests {
             let tx_b = tx.clone();
             inner
                 .keymap_for_mode(TestMode::B)
-                .add_binding(&[kp('a')], move |_: &E| {
+                .bind(&[kp('a')], move |_: &E| {
                     tx_b.send('x').unwrap();
                     Ok(())
                 });
@@ -301,7 +388,7 @@ pub mod tests {
         let mut inner: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
         inner
             .keymap_for_mode(TestMode::A)
-            .add_binding(&[kp('a')], move |_: &E| {
+            .bind(&[kp('a')], move |_: &E| {
                 tx.send('x').unwrap();
                 Ok(())
             });
@@ -334,7 +421,7 @@ pub mod tests {
         let mut inner: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
         inner
             .keymap_for_mode(TestMode::A)
-            .add_binding(&[kp('a')], move |_: &E| {
+            .bind(&[kp('a')], move |_: &E| {
                 tx_global.send('g').unwrap();
                 Ok(())
             });
@@ -344,7 +431,7 @@ pub mod tests {
             ModalKeymap::with_shared_state(shared_state.clone());
         local
             .keymap_for_mode(TestMode::A)
-            .add_binding(&[kp('a')], move |_: &E| {
+            .bind(&[kp('a')], move |_: &E| {
                 tx_local.send('l').unwrap();
                 Ok(())
             });
@@ -368,7 +455,7 @@ pub mod tests {
         let mut inner: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
         inner
             .keymap_for_mode(TestMode::A)
-            .add_binding(&[kp('a'), kp('b')], move |_: &E| {
+            .bind(&[kp('a'), kp('b')], move |_: &E| {
                 tx.send('x').unwrap();
                 Ok(())
             });
@@ -399,7 +486,7 @@ pub mod tests {
         // Two-key sequence in mode A.
         inner
             .keymap_for_mode(TestMode::A)
-            .add_binding(&[kp('a'), kp('b')], move |_: &E| {
+            .bind(&[kp('a'), kp('b')], move |_: &E| {
                 tx.send('x').unwrap();
                 Ok(())
             });
@@ -491,4 +578,184 @@ macro_rules! eel_modal_tests {
     ($test_tag:path, $editor_factory:expr) => {
         $crate::eel_modal_tests!($test_tag, $editor_factory, "");
     };
+}
+
+#[cfg(test)]
+mod macro_tests {
+    use super::*;
+    use crate::keymap::key::parse_key_sequence;
+    use crate::test_utils::mock::{MockAction, MockEditor};
+
+    #[derive(Debug, Clone, Eq, PartialEq, Hash)]
+    enum Mode {
+        Normal,
+        Insert,
+        Visual,
+    }
+    impl super::super::Mode for Mode {}
+
+    fn modal_km_with_actions(
+        initial: Mode,
+        entries: &[(Mode, &[(&str, u32)])],
+    ) -> ModalKeymap<MockEditor, Mode, MockAction> {
+        let mut km = ModalKeymap::new(initial);
+        for (mode, bindings) in entries {
+            for (s, tag) in *bindings {
+                km.keymap_for_mode(mode.clone())
+                    .add_binding(&parse_key_sequence(s).unwrap(), MockAction(*tag));
+            }
+        }
+        km
+    }
+
+    #[test]
+    fn single_mode_single_binding() {
+        let via_macro = modal_keymap! {
+            initial: Mode::Normal,
+            [Mode::Normal]: {
+                "j" => MockAction(0),
+            },
+        };
+        let manual = modal_km_with_actions(Mode::Normal, &[(Mode::Normal, &[("j", 0)])]);
+        assert_eq!(via_macro, manual);
+    }
+
+    #[test]
+    fn single_mode_multi_binding() {
+        let via_macro = modal_keymap! {
+            initial: Mode::Normal,
+            [Mode::Normal]: {
+                "j"     => MockAction(0),
+                "gg"    => MockAction(1),
+                "<C-j>" => MockAction(2),
+            },
+        };
+        let manual = modal_km_with_actions(
+            Mode::Normal,
+            &[(Mode::Normal, &[("j", 0), ("gg", 1), ("<C-j>", 2)])],
+        );
+        assert_eq!(via_macro, manual);
+        assert_ne!(
+            via_macro,
+            modal_km_with_actions(
+                Mode::Normal,
+                &[(Mode::Normal, &[("j", 0), ("gg", 99), ("<C-j>", 2)])],
+            )
+        );
+    }
+
+    #[test]
+    fn multiple_separate_modes() {
+        let via_macro = modal_keymap! {
+            initial: Mode::Normal,
+            [Mode::Normal]: {
+                "j" => MockAction(0),
+            },
+            [Mode::Insert]: {
+                "<Escape>" => MockAction(1),
+            },
+        };
+        let manual = modal_km_with_actions(
+            Mode::Normal,
+            &[
+                (Mode::Normal, &[("j", 0)]),
+                (Mode::Insert, &[("<Escape>", 1)]),
+            ],
+        );
+        assert_eq!(via_macro, manual);
+        assert_ne!(
+            via_macro,
+            modal_km_with_actions(
+                Mode::Normal,
+                &[
+                    (Mode::Normal, &[("j", 99)]),
+                    (Mode::Insert, &[("<Escape>", 1)])
+                ],
+            )
+        );
+    }
+
+    #[test]
+    fn multi_mode_shared_block() {
+        let via_macro = modal_keymap! {
+            initial: Mode::Normal,
+            [Mode::Normal, Mode::Visual]: {
+                "j" => MockAction(0),
+                "k" => MockAction(1),
+            },
+        };
+        let manual = modal_km_with_actions(
+            Mode::Normal,
+            &[
+                (Mode::Normal, &[("j", 0), ("k", 1)]),
+                (Mode::Visual, &[("j", 0), ("k", 1)]),
+            ],
+        );
+        assert_eq!(via_macro, manual);
+        assert_ne!(
+            via_macro,
+            modal_km_with_actions(
+                Mode::Normal,
+                &[
+                    (Mode::Normal, &[("j", 0), ("k", 1)]),
+                    (Mode::Visual, &[("j", 99), ("k", 1)]),
+                ],
+            )
+        );
+    }
+
+    #[test]
+    fn multi_mode_shared_and_exclusive() {
+        let via_macro = modal_keymap! {
+            initial: Mode::Normal,
+            [Mode::Normal, Mode::Visual]: {
+                "j" => MockAction(0),
+            },
+            [Mode::Insert]: {
+                "<Escape>" => MockAction(1),
+            },
+        };
+        let manual = modal_km_with_actions(
+            Mode::Normal,
+            &[
+                (Mode::Normal, &[("j", 0)]),
+                (Mode::Visual, &[("j", 0)]),
+                (Mode::Insert, &[("<Escape>", 1)]),
+            ],
+        );
+        assert_eq!(via_macro, manual);
+        assert_ne!(
+            via_macro,
+            modal_km_with_actions(
+                Mode::Normal,
+                &[
+                    (Mode::Normal, &[("j", 99)]),
+                    (Mode::Visual, &[("j", 0)]),
+                    (Mode::Insert, &[("<Escape>", 1)]),
+                ],
+            )
+        );
+    }
+
+    #[test]
+    fn initial_mode_differs_not_equal() {
+        let km_normal = modal_keymap! {
+            initial: Mode::Normal,
+            [Mode::Normal]: { "j" => MockAction(0) },
+        };
+        let km_insert = modal_keymap! {
+            initial: Mode::Insert,
+            [Mode::Normal]: { "j" => MockAction(0) },
+        };
+        assert_ne!(km_normal, km_insert);
+    }
+
+    #[test]
+    fn empty_modal_keymap() {
+        let via_macro: ModalKeymap<MockEditor, Mode, MockAction> = modal_keymap! {
+            initial: Mode::Normal,
+        };
+        let manual: ModalKeymap<MockEditor, Mode, MockAction> = ModalKeymap::new(Mode::Normal);
+        assert_eq!(via_macro, manual);
+    }
 }

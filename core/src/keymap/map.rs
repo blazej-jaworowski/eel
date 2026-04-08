@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt,
     hash::Hash,
     sync::{Arc, Mutex},
 };
@@ -24,7 +25,8 @@ pub enum MatchResult<A> {
 
 /// Common interface for key-sequence lookup.
 pub trait Keymap<E: Editor> {
-    fn match_sequence(&self, seq: &[KeyPress]) -> MatchResult<Arc<dyn KeyAction<E>>>;
+    type Action: KeyAction<E> + Clone;
+    fn match_sequence(&self, seq: &[KeyPress]) -> MatchResult<Self::Action>;
 }
 
 #[derive(Clone)]
@@ -71,34 +73,37 @@ impl<A: Clone> KeyTrie<A> {
 }
 
 /// A trie of key-sequence → action bindings.
-pub struct KeyMapping<E: Editor> {
-    inner: KeyTrie<Arc<dyn KeyAction<E>>>,
+pub struct KeyMapping<E: Editor, A: KeyAction<E> + Clone = Arc<dyn KeyAction<E>>> {
+    inner: KeyTrie<A>,
+    _marker: std::marker::PhantomData<E>,
 }
 
-impl<E: Editor> Default for KeyMapping<E> {
+impl<E: Editor, A: KeyAction<E> + Clone> Default for KeyMapping<E, A> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<E: Editor> Clone for KeyMapping<E> {
+impl<E: Editor, A: KeyAction<E> + Clone> Clone for KeyMapping<E, A> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
+            _marker: std::marker::PhantomData,
         }
     }
 }
 
-impl<E: Editor> KeyMapping<E> {
+impl<E: Editor, A: KeyAction<E> + Clone> KeyMapping<E, A> {
     pub fn new() -> Self {
         Self {
             inner: KeyTrie::new(),
+            _marker: std::marker::PhantomData,
         }
     }
 
     /// Register `action` for `seq`, replacing any existing binding.
-    pub fn add_binding(&mut self, seq: &[KeyPress], action: impl KeyAction<E>) {
-        self.inner.add_binding(seq, Arc::new(action));
+    pub fn add_binding(&mut self, seq: &[KeyPress], action: A) {
+        self.inner.add_binding(seq, action);
     }
 
     /// Remove the binding for `seq`.
@@ -107,15 +112,101 @@ impl<E: Editor> KeyMapping<E> {
     }
 
     /// Iterate over all bindings as `(sequence, action)` pairs.
-    pub fn iter(&self) -> impl Iterator<Item = (Vec<&KeyPress>, &Arc<dyn KeyAction<E>>)> {
+    pub fn iter(&self) -> impl Iterator<Item = (Vec<&KeyPress>, &A)> {
         self.inner.inner.iter()
     }
 }
 
-impl<E: Editor> Keymap<E> for KeyMapping<E> {
-    fn match_sequence(&self, seq: &[KeyPress]) -> MatchResult<Arc<dyn KeyAction<E>>> {
+impl<E: Editor> KeyMapping<E, Arc<dyn KeyAction<E>>> {
+    /// Register a closure or function as an action for `seq`.
+    ///
+    /// This is an ergonomic wrapper around [`add_binding`] for the
+    /// `Arc<dyn KeyAction<E>>` action type; it boxes the action automatically.
+    pub fn bind(&mut self, seq: &[KeyPress], action: impl KeyAction<E> + 'static) {
+        self.add_binding(seq, Arc::new(action));
+    }
+}
+
+impl<E: Editor, A: KeyAction<E> + Clone> Keymap<E> for KeyMapping<E, A> {
+    type Action = A;
+    fn match_sequence(&self, seq: &[KeyPress]) -> MatchResult<A> {
         self.inner.match_sequence(seq)
     }
+}
+
+impl<E: Editor, A: KeyAction<E> + Clone> fmt::Debug for KeyMapping<E, A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let seqs: Vec<Vec<KeyPress>> = self
+            .iter()
+            .map(|(k, _)| k.into_iter().cloned().collect())
+            .collect();
+        f.debug_struct("KeyMapping")
+            .field("bindings", &seqs)
+            .finish()
+    }
+}
+
+/// Two [`KeyMapping`]s are equal if they have the **same set of bound key
+/// sequences** with the **same actions**.
+///
+/// Actions are compared with `==`.  For the common case of testing that a
+/// macro-generated and a manually-built keymap are structurally identical,
+/// use a comparable action type such as [`crate::test_utils::mock::MockAction`].
+impl<E: Editor, A: KeyAction<E> + Clone + PartialEq> PartialEq for KeyMapping<E, A> {
+    fn eq(&self, other: &Self) -> bool {
+        let mut a: Vec<(Vec<KeyPress>, A)> = self
+            .iter()
+            .map(|(k, v)| (k.into_iter().cloned().collect(), v.clone()))
+            .collect();
+        let mut b: Vec<(Vec<KeyPress>, A)> = other
+            .iter()
+            .map(|(k, v)| (k.into_iter().cloned().collect(), v.clone()))
+            .collect();
+        a.sort_unstable_by(|(k1, _), (k2, _)| k1.cmp(k2));
+        b.sort_unstable_by(|(k1, _), (k2, _)| k1.cmp(k2));
+        a == b
+    }
+}
+
+impl<E: Editor, A: KeyAction<E> + Clone + Eq> Eq for KeyMapping<E, A> {}
+
+/// Build a [`KeyMapping`] from a list of `"key-sequence" => action` pairs.
+///
+/// Key sequences are parsed by [`eel::keymap::key::parse_key_sequence`], so
+/// they support plain characters and angle-bracket notation (`<C-j>`,
+/// `<Enter>`, `<F1>`, etc.).
+///
+/// Each action is passed directly to [`KeyMapping::add_binding`], so the
+/// resulting action type `A` is inferred from the expressions.  Use
+/// `Arc::new(...)` to produce `Arc<dyn KeyAction<E>>`, or a concrete
+/// action type such as `MockAction` for tests.
+///
+/// ```ignore
+/// // With a concrete action type:
+/// let km: KeyMapping<MyEditor, MyAction> = keymap! {
+///     "j"     => MyAction::MoveDown,
+///     "<C-j>" => MyAction::Ctrl,
+/// };
+///
+/// // With Arc-boxed closures:
+/// let km: KeyMapping<MyEditor> = keymap! {
+///     "j"     => Arc::new(|_: &MyEditor| Ok(())),
+///     "<C-j>" => Arc::new(|_: &MyEditor| Ok(())),
+/// };
+/// ```
+#[macro_export]
+macro_rules! keymap {
+    ( $( $seq:expr => $action:expr ),* $(,)? ) => {{
+        let mut _m = $crate::keymap::KeyMapping::new();
+        $(
+            _m.add_binding(
+                &$crate::keymap::key::parse_key_sequence($seq)
+                    .expect("invalid key sequence in keymap! macro"),
+                $action,
+            );
+        )*
+        _m
+    }};
 }
 
 /// A keymap that dispatches to a per-buffer local inner keymap first, then
@@ -193,7 +284,9 @@ where
     K: Keymap<E>,
     E::BufferHandle: Hash,
 {
-    fn match_sequence(&self, seq: &[KeyPress]) -> MatchResult<Arc<dyn KeyAction<E>>> {
+    type Action = K::Action;
+
+    fn match_sequence(&self, seq: &[KeyPress]) -> MatchResult<K::Action> {
         let buf = self
             .editor
             .current_buffer()
@@ -380,5 +473,87 @@ mod tests {
         assert!(is_partial(&b, "ab"));
         assert!(is_partial(&b, "a"));
         assert_eq!(exact(&b, "abc"), Some(2));
+    }
+
+    use crate::keymap::key::parse_key_sequence;
+    use crate::test_utils::mock::{MockAction, MockEditor};
+
+    fn km_with_actions(bindings: &[(&str, u32)]) -> KeyMapping<MockEditor, MockAction> {
+        let mut km = KeyMapping::new();
+        for (s, tag) in bindings {
+            km.add_binding(&parse_key_sequence(s).unwrap(), MockAction(*tag));
+        }
+        km
+    }
+
+    #[test]
+    fn macro_single_key() {
+        let via_macro = keymap! { "j" => MockAction(0) };
+        assert_eq!(via_macro, km_with_actions(&[("j", 0)]));
+    }
+
+    #[test]
+    fn macro_multi_key_sequence() {
+        let via_macro = keymap! { "abc" => MockAction(0) };
+        assert_eq!(via_macro, km_with_actions(&[("abc", 0)]));
+    }
+
+    #[test]
+    fn macro_special_key_notation() {
+        let via_macro = keymap! {
+            "<C-j>"   => MockAction(0),
+            "<Enter>" => MockAction(1),
+            "<S-Up>"  => MockAction(2),
+        };
+        assert_eq!(
+            via_macro,
+            km_with_actions(&[("<C-j>", 0), ("<Enter>", 1), ("<S-Up>", 2)])
+        );
+        assert_ne!(
+            via_macro,
+            km_with_actions(&[("<C-j>", 99), ("<Enter>", 1), ("<S-Up>", 2)])
+        );
+    }
+
+    #[test]
+    fn macro_multiple_bindings() {
+        let via_macro = keymap! {
+            "j"  => MockAction(0),
+            "k"  => MockAction(1),
+            "gg" => MockAction(2),
+        };
+        assert_eq!(via_macro, km_with_actions(&[("j", 0), ("k", 1), ("gg", 2)]));
+        assert_ne!(
+            via_macro,
+            km_with_actions(&[("j", 0), ("k", 1), ("gg", 99)])
+        );
+    }
+
+    #[test]
+    fn macro_empty() {
+        let via_macro: KeyMapping<MockEditor, MockAction> = keymap! {};
+        assert_eq!(via_macro, km_with_actions(&[]));
+    }
+
+    #[test]
+    fn keymapping_equality_same_tags() {
+        let a = km_with_actions(&[("j", 0), ("k", 1)]);
+        let b = km_with_actions(&[("j", 0), ("k", 1)]);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn keymapping_equality_different_tags() {
+        // Same sequence, different action tag → not equal.
+        let a = km_with_actions(&[("j", 0)]);
+        let b = km_with_actions(&[("j", 99)]);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn keymapping_equality_different_sequences() {
+        let a = km_with_actions(&[("j", 0)]);
+        let b = km_with_actions(&[("k", 0)]);
+        assert_ne!(a, b);
     }
 }

@@ -315,4 +315,19 @@ pub(crate) mod mock {
             unimplemented!()
         }
     }
+
+    /// A no-op key action for use in keymap equality tests.
+    ///
+    /// The `u32` tag makes instances distinguishable by `PartialEq`, so tests
+    /// can verify that `KeyMapping::PartialEq` compares actions, not just sequences.
+    #[cfg(feature = "keymap")]
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct MockAction(pub u32);
+
+    #[cfg(feature = "keymap")]
+    impl crate::keymap::KeyAction<MockEditor> for MockAction {
+        fn call(&self, _: &MockEditor) -> crate::Result<()> {
+            Ok(())
+        }
+    }
 }

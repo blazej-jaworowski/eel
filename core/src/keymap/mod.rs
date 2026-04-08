@@ -101,7 +101,7 @@ pub mod tests {
         let (tx, rx) = mpsc::channel::<char>();
 
         let mut keymap = LocalizedKeymap::new(editor.clone(), KeyMapping::new());
-        keymap.global_mut().add_binding(&[kp('a')], move |_: &E| {
+        keymap.global_mut().bind(&[kp('a')], move |_: &E| {
             tx.send('x').unwrap();
             Ok(())
         });
@@ -120,12 +120,10 @@ pub mod tests {
         let (tx, rx) = mpsc::channel::<char>();
 
         let mut keymap = LocalizedKeymap::new(editor.clone(), KeyMapping::new());
-        keymap
-            .global_mut()
-            .add_binding(&[kp('a'), kp('b')], move |_: &E| {
-                tx.send('x').unwrap();
-                Ok(())
-            });
+        keymap.global_mut().bind(&[kp('a'), kp('b')], move |_: &E| {
+            tx.send('x').unwrap();
+            Ok(())
+        });
 
         keymap.activate().unwrap();
 
@@ -148,12 +146,10 @@ pub mod tests {
         let (tx, rx) = mpsc::channel::<char>();
 
         let mut keymap = LocalizedKeymap::new(editor.clone(), KeyMapping::new());
-        keymap
-            .global_mut()
-            .add_binding(&[kp('a'), kp('b')], move |_: &E| {
-                tx.send('x').unwrap();
-                Ok(())
-            });
+        keymap.global_mut().bind(&[kp('a'), kp('b')], move |_: &E| {
+            tx.send('x').unwrap();
+            Ok(())
+        });
 
         keymap.activate().unwrap();
 
@@ -181,13 +177,13 @@ pub mod tests {
         let tx2 = tx.clone();
 
         let mut keymap = LocalizedKeymap::new(editor.clone(), KeyMapping::new());
-        keymap.global_mut().add_binding(&[kp('a')], move |_: &E| {
+        keymap.global_mut().bind(&[kp('a')], move |_: &E| {
             tx1.send('g').unwrap();
             Ok(())
         });
 
         let mut local: KeyMapping<E> = KeyMapping::new();
-        local.add_binding(&[kp('a')], move |_: &E| {
+        local.bind(&[kp('a')], move |_: &E| {
             tx2.send('l').unwrap();
             Ok(())
         });
@@ -213,14 +209,14 @@ pub mod tests {
         let tx2 = tx.clone();
 
         let mut keymap = LocalizedKeymap::new(editor.clone(), KeyMapping::new());
-        keymap.global_mut().add_binding(&[kp('a')], move |_: &E| {
+        keymap.global_mut().bind(&[kp('a')], move |_: &E| {
             tx1.send('g').unwrap();
             Ok(())
         });
 
         // Local binding is on other_buf — should not intercept keys while on current_buf
         let mut local: KeyMapping<E> = KeyMapping::new();
-        local.add_binding(&[kp('a')], move |_: &E| {
+        local.bind(&[kp('a')], move |_: &E| {
             tx2.send('o').unwrap();
             Ok(())
         });
