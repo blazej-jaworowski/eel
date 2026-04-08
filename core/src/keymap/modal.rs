@@ -1,12 +1,14 @@
 use std::{
     collections::HashMap,
-    hash::Hash,
     sync::{Arc, Mutex},
 };
 
-use crate::{Editor, Result, tracing::ResultExt as _};
+use crate::Editor;
 
-use super::{KeyEditor, KeySequence, map::Keymap};
+use super::{
+    KeyPress,
+    map::{KeyMapping, Keymap, MatchResult},
+};
 
 /// Marker trait for types that can serve as a [`ModalKeymap`] mode discriminant.
 ///
@@ -20,19 +22,16 @@ use super::{KeyEditor, KeySequence, map::Keymap};
 /// enum MyMode { Normal, Insert }
 /// impl Mode for MyMode {}
 /// ```
-pub trait Mode: Eq + Hash + Clone + Send + Sync + 'static {}
+pub trait Mode: Eq + std::hash::Hash + Clone + Send + Sync + 'static {}
 
 /// Runtime state shared between a [`ModalKeymap`] and all [`ModeController`]
 /// clones that were derived from it.
-struct ModalState<M: Mode> {
-    mode: M,
-    seq: KeySequence,
-}
-
-impl<M: Mode> ModalState<M> {
-    fn clear_seq(&mut self) {
-        self.seq.clear();
-    }
+pub struct ModalState<M: Mode> {
+    pub(crate) mode: M,
+    /// Set to `true` when the first key of a new sequence arrives.
+    /// Cleared by [`ModeController::set_mode`] on a mode change, so that a
+    /// partial sequence accumulated in one mode can never fire in another.
+    pub(crate) accumulating: bool,
 }
 
 /// A handle for reading and changing the active mode of a [`ModalKeymap`].
@@ -52,13 +51,13 @@ impl<M: Mode> ModeController<M> {
 
     /// Switch to `mode`.
     ///
-    /// If `mode` differs from the current mode, also clears the accumulated
-    /// key-press sequence so that a partial prefix started in the old mode can
-    /// never complete in the new one.  Calling with the current mode is a no-op.
+    /// If `mode` differs from the current mode, also clears the `accumulating`
+    /// flag so that a partial prefix started in the old mode can never complete
+    /// in the new one.  Calling with the current mode is a no-op.
     pub fn set_mode(&self, mode: M) {
         let mut s = self.state.lock().unwrap();
         if s.mode != mode {
-            s.clear_seq();
+            s.accumulating = false;
         }
         s.mode = mode;
     }
@@ -66,18 +65,21 @@ impl<M: Mode> ModeController<M> {
 
 /// A keymap that dispatches key presses according to the current mode.
 ///
-/// Each mode has its own global and buffer-local bindings managed through the
-/// standard [`Keymap`] API, accessible via [`ModalKeymap::keymap_for_mode`].
+/// Each mode has its own [`KeyMapping`] accessible via
+/// [`ModalKeymap::keymap_for_mode`].
 ///
 /// Mode transitions are performed through a [`ModeController`] obtained via
 /// [`ModalKeymap::mode_controller`].  Calling [`ModeController::set_mode`]
-/// atomically updates the mode and clears the accumulated key-press sequence,
-/// so stale partial sequences can never fire across mode boundaries.
+/// atomically updates the mode and clears the `accumulating` flag, so stale
+/// partial sequences can never fire across mode boundaries.
 ///
 /// Unmatched key presses in any mode are silently dropped.
+///
+/// To add buffer-local bindings or to activate the keymap, wrap this in a
+/// [`super::map::LocalizedKeymap`].
 pub struct ModalKeymap<E: Editor, M: Mode> {
-    state: Arc<Mutex<ModalState<M>>>,
-    bindings: HashMap<M, Keymap<E>>,
+    pub(crate) state: Arc<Mutex<ModalState<M>>>,
+    bindings: HashMap<M, KeyMapping<E>>,
 }
 
 impl<E, M> ModalKeymap<E, M>
@@ -89,30 +91,45 @@ where
         Self {
             state: Arc::new(Mutex::new(ModalState {
                 mode: initial,
-                seq: Vec::new(),
+                accumulating: false,
             })),
             bindings: HashMap::new(),
         }
+    }
+
+    /// Create a [`ModalKeymap`] that shares its mode state with an existing
+    /// one.  This is useful for buffer-local modal keymaps that must track the
+    /// same mode as the global keymap.
+    pub fn with_shared_state(state: Arc<Mutex<ModalState<M>>>) -> Self {
+        Self {
+            state,
+            bindings: HashMap::new(),
+        }
+    }
+
+    /// Returns the [`Arc`] backing the shared mode state, so it can be passed
+    /// to [`ModalKeymap::with_shared_state`].
+    pub fn shared_state(&self) -> Arc<Mutex<ModalState<M>>> {
+        self.state.clone()
     }
 
     /// Returns a [`ModeController`] that can be cloned and captured in actions
     /// to read or change the active mode.
     pub fn mode_controller(&self) -> ModeController<M> {
         ModeController {
-            state: Arc::clone(&self.state),
+            state: self.state.clone(),
         }
     }
 
-    /// Returns a mutable reference to the [`Keymap`] for `mode`, creating an
-    /// empty one if it does not yet exist.
+    /// Returns a mutable reference to the [`KeyMapping`] for `mode`, creating
+    /// an empty one if it does not yet exist.
     ///
     /// Use this to add or remove bindings for a specific mode:
     ///
     /// ```ignore
-    /// km.keymap_for_mode(Mode::Normal).add_global(&[kp('i')], action);
-    /// km.keymap_for_mode(Mode::Insert).add_local(buf, &[kp('a')], action);
+    /// km.keymap_for_mode(Mode::Normal).add_binding(&[kp('i')], action);
     /// ```
-    pub fn keymap_for_mode(&mut self, mode: M) -> &mut Keymap<E> {
+    pub fn keymap_for_mode(&mut self, mode: M) -> &mut KeyMapping<E> {
         self.bindings.entry(mode).or_default()
     }
 }
@@ -121,8 +138,8 @@ impl<E: Editor, M: Mode> Clone for ModalKeymap<E, M> {
     /// Creates an independent clone of this keymap.
     ///
     /// The clone has:
-    /// - the same bindings (deep-copied via [`Keymap`]'s own `Clone` impl),
-    /// - a fresh key-press sequence accumulator (empty),
+    /// - the same bindings (deep-copied),
+    /// - a fresh `accumulating` flag (false),
     /// - a snapshotted copy of the current mode.
     ///
     /// The original and the clone have **independent** runtime state: a
@@ -132,69 +149,33 @@ impl<E: Editor, M: Mode> Clone for ModalKeymap<E, M> {
             bindings: self.bindings.clone(),
             state: Arc::new(Mutex::new(ModalState {
                 mode: self.state.lock().unwrap().mode.clone(),
-                seq: Vec::new(),
+                accumulating: false,
             })),
         }
     }
 }
 
-impl<E, M> ModalKeymap<E, M>
-where
-    E: KeyEditor + 'static,
-    M: Mode,
-    E::BufferHandle: Hash,
-{
-    /// Activate this modal keymap on `editor`.
+impl<E: Editor, M: Mode> Keymap<E> for ModalKeymap<E, M> {
+    /// Match `seq` against the bindings for the current mode.
     ///
-    /// Installs a single [`KeyEditor::capture_keys`] handler that:
-    ///
-    /// - Reads the current mode and accumulated sequence from the shared state.
-    /// - Dispatches to the mode's bindings using prefix-trie matching.
-    /// - On exact match: fires the action and clears the accumulator.
-    /// - On partial match: keeps accumulating.
-    /// - On no match or unknown mode: silently drops the accumulator.
-    ///
-    /// Mode changes via [`ModeController::set_mode`] atomically clear the
-    /// accumulator, so no mid-sequence pollution can cross mode boundaries.
-    pub fn activate(self, editor: Arc<E>) -> Result<()> {
-        let bindings = Arc::new(self.bindings);
-        let state = self.state;
-        let editor_for_cb = Arc::clone(&editor);
+    /// On the first key of a new sequence (`seq.len() == 1`), sets the
+    /// `accumulating` flag.  If the flag was cleared by a mode change before
+    /// a subsequent key arrives (`seq.len() > 1 && !accumulating`), returns
+    /// [`MatchResult::NoMatch`] so the external accumulator resets cleanly.
+    fn match_sequence(&self, seq: &[KeyPress]) -> MatchResult<Arc<dyn super::KeyAction<E>>> {
+        let mut s = self.state.lock().unwrap();
+        if seq.len() == 1 {
+            s.accumulating = true;
+        } else if !s.accumulating {
+            return MatchResult::NoMatch;
+        }
+        let mode = s.mode.clone();
+        drop(s);
 
-        editor.capture_keys(move |key_press| {
-            // Push key and snapshot mode under a single lock acquisition.
-            let current_mode = {
-                let mut s = state.lock().unwrap();
-                s.seq.push(key_press.clone());
-                s.mode.clone()
-            };
-
-            let current_buf = editor_for_cb.current_buffer().ok();
-
-            let result = {
-                let s = state.lock().unwrap();
-                match bindings.get(&current_mode) {
-                    Some(km) => km.match_sequence(current_buf.as_ref(), &s.seq),
-                    None => {
-                        drop(s);
-                        state.lock().unwrap().clear_seq();
-                        return;
-                    }
-                }
-            };
-
-            use crate::keymap::map::MatchResult;
-            match result {
-                MatchResult::ExactMatch(action) => {
-                    state.lock().unwrap().clear_seq();
-                    _ = action
-                        .call(&editor_for_cb)
-                        .log_err_msg("ModalKeymap action failed");
-                }
-                MatchResult::PartialMatch => { /* keep accumulating */ }
-                MatchResult::NoMatch => state.lock().unwrap().clear_seq(),
-            }
-        })
+        match self.bindings.get(&mode) {
+            Some(km) => km.match_sequence(seq),
+            None => MatchResult::NoMatch,
+        }
     }
 }
 
@@ -204,6 +185,7 @@ pub mod tests {
 
     use super::ModalKeymap;
     use crate::keymap::KeyPress;
+    use crate::keymap::map::LocalizedKeymap;
     use crate::keymap::tests::TestKeyEditor;
 
     #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -230,17 +212,19 @@ pub mod tests {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
-        let mut km: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
-        let mc = km.mode_controller();
+        let mut inner: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
+        let mc = inner.mode_controller();
 
         // Binding only exists in mode B.
-        km.keymap_for_mode(TestMode::B)
-            .add_global(&[kp('a')], move |_: &E| {
+        inner
+            .keymap_for_mode(TestMode::B)
+            .add_binding(&[kp('a')], move |_: &E| {
                 tx.send('x').unwrap();
                 Ok(())
             });
 
-        km.activate(Arc::clone(&editor)).unwrap();
+        let km = LocalizedKeymap::new(editor.clone(), inner);
+        km.activate().unwrap();
 
         // In mode A, 'a' must be silently dropped.
         editor.send_test_key(&kp('a'));
@@ -260,14 +244,15 @@ pub mod tests {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
-        let mut km: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
-        let mc = km.mode_controller();
+        let mut inner: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
+        let mc = inner.mode_controller();
 
         // 'i' in A switches to B.
         {
             let mc = mc.clone();
-            km.keymap_for_mode(TestMode::A)
-                .add_global(&[kp('i')], move |_: &E| {
+            inner
+                .keymap_for_mode(TestMode::A)
+                .add_binding(&[kp('i')], move |_: &E| {
                     mc.set_mode(TestMode::B);
                     Ok(())
                 });
@@ -275,22 +260,25 @@ pub mod tests {
         // 'a' in A sends 'y'; 'a' in B sends 'x'.
         {
             let tx_a = tx.clone();
-            km.keymap_for_mode(TestMode::A)
-                .add_global(&[kp('a')], move |_: &E| {
+            inner
+                .keymap_for_mode(TestMode::A)
+                .add_binding(&[kp('a')], move |_: &E| {
                     tx_a.send('y').unwrap();
                     Ok(())
                 });
         }
         {
             let tx_b = tx.clone();
-            km.keymap_for_mode(TestMode::B)
-                .add_global(&[kp('a')], move |_: &E| {
+            inner
+                .keymap_for_mode(TestMode::B)
+                .add_binding(&[kp('a')], move |_: &E| {
                     tx_b.send('x').unwrap();
                     Ok(())
                 });
         }
 
-        km.activate(Arc::clone(&editor)).unwrap();
+        let km = LocalizedKeymap::new(editor.clone(), inner);
+        km.activate().unwrap();
 
         // 'i' in A switches to B, no output.
         editor.send_test_key(&kp('i'));
@@ -310,14 +298,16 @@ pub mod tests {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
-        let mut km: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
-        km.keymap_for_mode(TestMode::A)
-            .add_global(&[kp('a')], move |_: &E| {
+        let mut inner: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
+        inner
+            .keymap_for_mode(TestMode::A)
+            .add_binding(&[kp('a')], move |_: &E| {
                 tx.send('x').unwrap();
                 Ok(())
             });
 
-        km.activate(Arc::clone(&editor)).unwrap();
+        let km = LocalizedKeymap::new(editor.clone(), inner);
+        km.activate().unwrap();
 
         // 'b' has no binding; must be silently dropped.
         editor.send_test_key(&kp('b'));
@@ -341,21 +331,29 @@ pub mod tests {
         let tx_global = tx.clone();
         let tx_local = tx.clone();
 
-        let mut km: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
-        km.keymap_for_mode(TestMode::A)
-            .add_global(&[kp('a')], move |_: &E| {
+        let mut inner: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
+        inner
+            .keymap_for_mode(TestMode::A)
+            .add_binding(&[kp('a')], move |_: &E| {
                 tx_global.send('g').unwrap();
                 Ok(())
             });
-        km.keymap_for_mode(TestMode::A)
-            .add_local(current_buf, &[kp('a')], move |_: &E| {
+
+        let shared_state = inner.shared_state();
+        let mut local: ModalKeymap<E, TestMode> =
+            ModalKeymap::with_shared_state(shared_state.clone());
+        local
+            .keymap_for_mode(TestMode::A)
+            .add_binding(&[kp('a')], move |_: &E| {
                 tx_local.send('l').unwrap();
                 Ok(())
             });
 
-        km.activate(Arc::clone(&editor)).unwrap();
-        editor.send_test_key(&kp('a'));
+        let mut km = LocalizedKeymap::new(editor.clone(), inner);
+        km.set_local(current_buf, local);
+        km.activate().unwrap();
 
+        editor.send_test_key(&kp('a'));
         assert_eq!(collect(&rx), vec!['l']);
     }
 
@@ -367,14 +365,16 @@ pub mod tests {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
-        let mut km: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
-        km.keymap_for_mode(TestMode::A)
-            .add_global(&[kp('a'), kp('b')], move |_: &E| {
+        let mut inner: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
+        inner
+            .keymap_for_mode(TestMode::A)
+            .add_binding(&[kp('a'), kp('b')], move |_: &E| {
                 tx.send('x').unwrap();
                 Ok(())
             });
 
-        km.activate(Arc::clone(&editor)).unwrap();
+        let km = LocalizedKeymap::new(editor.clone(), inner);
+        km.activate().unwrap();
 
         // 'a' alone is a partial match — must not fire yet.
         editor.send_test_key(&kp('a'));
@@ -393,26 +393,28 @@ pub mod tests {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
-        let mut km: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
-        let mc = km.mode_controller();
+        let mut inner: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
+        let mc = inner.mode_controller();
 
         // Two-key sequence in mode A.
-        km.keymap_for_mode(TestMode::A)
-            .add_global(&[kp('a'), kp('b')], move |_: &E| {
+        inner
+            .keymap_for_mode(TestMode::A)
+            .add_binding(&[kp('a'), kp('b')], move |_: &E| {
                 tx.send('x').unwrap();
                 Ok(())
             });
 
-        km.activate(Arc::clone(&editor)).unwrap();
+        let km = LocalizedKeymap::new(editor.clone(), inner);
+        km.activate().unwrap();
 
         // Start accumulating in A.
         editor.send_test_key(&kp('a'));
         assert_eq!(collect(&rx), vec![]);
 
-        // Switch to B mid-sequence — clears accumulator.
+        // Switch to B mid-sequence — clears accumulating flag.
         mc.set_mode(TestMode::B);
 
-        // 'b' would complete the A sequence, but accumulator was cleared.
+        // 'b' would complete the A sequence, but accumulating was cleared.
         editor.send_test_key(&kp('b'));
         assert_eq!(
             collect(&rx),

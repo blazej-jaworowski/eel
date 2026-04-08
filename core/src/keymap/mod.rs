@@ -6,7 +6,7 @@ pub mod modal;
 
 pub use action::KeyAction;
 pub use key::{Key, KeyPress, KeySequence, Modifiers, SpecialKey};
-pub use map::{KeyMapping, Keymap, MatchResult};
+pub use map::{KeyMapping, Keymap, LocalizedKeymap, MatchResult};
 #[cfg(feature = "modal")]
 pub use modal::{ModalKeymap, Mode, ModeController};
 
@@ -32,8 +32,9 @@ pub trait KeyEditor: Editor {
 pub mod tests {
     use std::sync::{Arc, mpsc};
 
-    use super::{KeyEditor, KeyPress, Keymap};
+    use super::{KeyEditor, KeyPress, LocalizedKeymap};
     use crate::keymap::key::{Key, Modifiers};
+    use crate::keymap::map::KeyMapping;
 
     /// Extension of [`KeyEditor`] for use in generic tests.
     ///
@@ -99,13 +100,13 @@ pub mod tests {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
-        let mut keymap: Keymap<E> = Keymap::new();
-        keymap.add_global(&[kp('a')], move |_: &E| {
+        let mut keymap = LocalizedKeymap::new(editor.clone(), KeyMapping::new());
+        keymap.global_mut().add_binding(&[kp('a')], move |_: &E| {
             tx.send('x').unwrap();
             Ok(())
         });
 
-        keymap.activate(Arc::clone(&editor)).unwrap();
+        keymap.activate().unwrap();
         editor.send_test_key(&kp('a'));
 
         assert_eq!(collect(&rx), vec!['x']);
@@ -118,13 +119,15 @@ pub mod tests {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
-        let mut keymap: Keymap<E> = Keymap::new();
-        keymap.add_global(&[kp('a'), kp('b')], move |_: &E| {
-            tx.send('x').unwrap();
-            Ok(())
-        });
+        let mut keymap = LocalizedKeymap::new(editor.clone(), KeyMapping::new());
+        keymap
+            .global_mut()
+            .add_binding(&[kp('a'), kp('b')], move |_: &E| {
+                tx.send('x').unwrap();
+                Ok(())
+            });
 
-        keymap.activate(Arc::clone(&editor)).unwrap();
+        keymap.activate().unwrap();
 
         editor.send_test_key(&kp('a'));
         assert_eq!(
@@ -144,13 +147,15 @@ pub mod tests {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
-        let mut keymap: Keymap<E> = Keymap::new();
-        keymap.add_global(&[kp('a'), kp('b')], move |_: &E| {
-            tx.send('x').unwrap();
-            Ok(())
-        });
+        let mut keymap = LocalizedKeymap::new(editor.clone(), KeyMapping::new());
+        keymap
+            .global_mut()
+            .add_binding(&[kp('a'), kp('b')], move |_: &E| {
+                tx.send('x').unwrap();
+                Ok(())
+            });
 
-        keymap.activate(Arc::clone(&editor)).unwrap();
+        keymap.activate().unwrap();
 
         // "ax" — no match, should reset accumulator
         editor.send_test_key(&kp('a'));
@@ -175,17 +180,20 @@ pub mod tests {
         let tx1 = tx.clone();
         let tx2 = tx.clone();
 
-        let mut keymap: Keymap<E> = Keymap::new();
-        keymap.add_global(&[kp('a')], move |_: &E| {
+        let mut keymap = LocalizedKeymap::new(editor.clone(), KeyMapping::new());
+        keymap.global_mut().add_binding(&[kp('a')], move |_: &E| {
             tx1.send('g').unwrap();
             Ok(())
         });
-        keymap.add_local(current_buf, &[kp('a')], move |_: &E| {
+
+        let mut local: KeyMapping<E> = KeyMapping::new();
+        local.add_binding(&[kp('a')], move |_: &E| {
             tx2.send('l').unwrap();
             Ok(())
         });
+        keymap.set_local(current_buf, local);
 
-        keymap.activate(Arc::clone(&editor)).unwrap();
+        keymap.activate().unwrap();
         editor.send_test_key(&kp('a'));
 
         assert_eq!(collect(&rx), vec!['l']);
@@ -204,19 +212,22 @@ pub mod tests {
         let tx1 = tx.clone();
         let tx2 = tx.clone();
 
-        let mut keymap: Keymap<E> = Keymap::new();
-        keymap.add_global(&[kp('a')], move |_: &E| {
+        let mut keymap = LocalizedKeymap::new(editor.clone(), KeyMapping::new());
+        keymap.global_mut().add_binding(&[kp('a')], move |_: &E| {
             tx1.send('g').unwrap();
             Ok(())
         });
+
         // Local binding is on other_buf — should not intercept keys while on current_buf
-        keymap.add_local(other_buf.clone(), &[kp('a')], move |_: &E| {
+        let mut local: KeyMapping<E> = KeyMapping::new();
+        local.add_binding(&[kp('a')], move |_: &E| {
             tx2.send('o').unwrap();
             Ok(())
         });
+        keymap.set_local(other_buf.clone(), local);
 
         editor.set_current_buffer(&current_buf).unwrap();
-        keymap.activate(Arc::clone(&editor)).unwrap();
+        keymap.activate().unwrap();
         editor.send_test_key(&kp('a'));
 
         assert_eq!(collect(&rx), vec!['g']);
