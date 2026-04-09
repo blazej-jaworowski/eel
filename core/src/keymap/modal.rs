@@ -584,7 +584,7 @@ macro_rules! eel_modal_tests {
 mod macro_tests {
     use super::*;
     use crate::keymap::key::parse_key_sequence;
-    use crate::test_utils::mock::{MockAction, MockEditor};
+    use crate::mock::{MockAction, MockEditor};
 
     #[derive(Debug, Clone, Eq, PartialEq, Hash)]
     enum Mode {

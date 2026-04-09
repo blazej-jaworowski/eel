@@ -151,7 +151,7 @@ impl<E: Editor, A: KeyAction<E> + Clone> fmt::Debug for KeyMapping<E, A> {
 ///
 /// Actions are compared with `==`.  For the common case of testing that a
 /// macro-generated and a manually-built keymap are structurally identical,
-/// use a comparable action type such as [`crate::test_utils::mock::MockAction`].
+/// use a comparable action type such as [`crate::mock::MockAction`].
 impl<E: Editor, A: KeyAction<E> + Clone + PartialEq> PartialEq for KeyMapping<E, A> {
     fn eq(&self, other: &Self) -> bool {
         let mut a: Vec<(Vec<KeyPress>, A)> = self
@@ -474,9 +474,14 @@ mod tests {
         assert!(is_partial(&b, "a"));
         assert_eq!(exact(&b, "abc"), Some(2));
     }
+}
 
+#[cfg(test)]
+mod keymap_macro_tests {
+    use super::*;
+    use crate::keymap::action::KeyAction;
     use crate::keymap::key::parse_key_sequence;
-    use crate::test_utils::mock::{MockAction, MockEditor};
+    use crate::mock::{MockAction, MockEditor};
 
     fn km_with_actions(bindings: &[(&str, u32)]) -> KeyMapping<MockEditor, MockAction> {
         let mut km = KeyMapping::new();

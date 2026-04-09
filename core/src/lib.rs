@@ -32,6 +32,9 @@ pub mod keymap;
 #[cfg(feature = "tests")]
 pub mod test_utils;
 
+#[cfg(test)]
+pub(crate) mod mock;
+
 #[cfg(feature = "tests")]
 mod tests {
     #[macro_export]
