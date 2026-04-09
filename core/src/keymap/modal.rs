@@ -236,41 +236,31 @@ where
 /// Multiple modes may share the same binding block — the block is expanded
 /// once and the resulting [`KeyMapping`] is cloned into each mode slot.
 ///
+/// The `editor:` and `controller:` headers enable bare block actions.
+/// `controller: <name>` binds `ModalKeymap::mode_controller()` to `<name>`
+/// inside every action block (it is cloned into each closure automatically).
+///
 /// ```ignore
 /// let km = modal_keymap! {
+///     editor: e,
+///     controller: ctrl,
 ///     initial: MyMode::Normal,
 ///     [MyMode::Normal, MyMode::Visual]: {
-///         "j" => move_action,
+///         "j" => { e.move_down(); Ok(()) },
+///         "i" => { ctrl.set_mode(MyMode::Insert); Ok(()) },
 ///     },
 ///     [MyMode::Insert]: {
-///         "<Escape>" => leave_insert,
+///         "<Escape>" => { ctrl.set_mode(MyMode::Normal); Ok(()) },
 ///     },
 /// };
 /// ```
-#[macro_export]
-macro_rules! modal_keymap {
-    (
-        initial: $initial:expr,
-        $(
-            [ $( $mode:expr ),+ $(,)? ]: $bindings:tt
-        ),* $(,)?
-    ) => {{
-        let mut _m = $crate::keymap::modal::ModalKeymap::new($initial);
-        $(
-            {
-                let _km = $crate::keymap! $bindings;
-                $( *_m.keymap_for_mode($mode) = _km.clone(); )+
-            }
-        )*
-        _m
-    }};
-}
+pub use eel_macros::modal_keymap;
 
 #[cfg(feature = "tests")]
 pub mod tests {
     use std::sync::{Arc, mpsc};
 
-    use super::ModalKeymap;
+    use super::{ModalKeymap, modal_keymap};
     use crate::keymap::KeyPress;
     use crate::keymap::map::LocalizedKeymap;
     use crate::keymap::tests::TestKeyEditor;
@@ -299,16 +289,13 @@ pub mod tests {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
-        let mut inner: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
+        let inner: ModalKeymap<E, TestMode> = modal_keymap! {
+            initial: TestMode::A,
+            [TestMode::B]: {
+                "a" => { tx.send('x').unwrap(); Ok(()) },
+            },
+        };
         let mc = inner.mode_controller();
-
-        // Binding only exists in mode B.
-        inner
-            .keymap_for_mode(TestMode::B)
-            .bind(&[kp('a')], move |_: &E| {
-                tx.send('x').unwrap();
-                Ok(())
-            });
 
         let km = LocalizedKeymap::new(editor.clone(), inner);
         km.activate().unwrap();
@@ -331,38 +318,21 @@ pub mod tests {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
-        let mut inner: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
-        let mc = inner.mode_controller();
+        let tx_a = tx.clone();
+        let tx_b = tx.clone();
 
-        // 'i' in A switches to B.
-        {
-            let mc = mc.clone();
-            inner
-                .keymap_for_mode(TestMode::A)
-                .bind(&[kp('i')], move |_: &E| {
-                    mc.set_mode(TestMode::B);
-                    Ok(())
-                });
-        }
-        // 'a' in A sends 'y'; 'a' in B sends 'x'.
-        {
-            let tx_a = tx.clone();
-            inner
-                .keymap_for_mode(TestMode::A)
-                .bind(&[kp('a')], move |_: &E| {
-                    tx_a.send('y').unwrap();
-                    Ok(())
-                });
-        }
-        {
-            let tx_b = tx.clone();
-            inner
-                .keymap_for_mode(TestMode::B)
-                .bind(&[kp('a')], move |_: &E| {
-                    tx_b.send('x').unwrap();
-                    Ok(())
-                });
-        }
+        let inner: ModalKeymap<E, TestMode> = modal_keymap! {
+            controller: ctrl,
+            initial: TestMode::A,
+            [TestMode::A]: {
+                "i" => { ctrl.set_mode(TestMode::B); Ok(()) },
+                "a" => { tx_a.send('y').unwrap(); Ok(()) },
+            },
+            [TestMode::B]: {
+                "a" => { tx_b.send('x').unwrap(); Ok(()) },
+            },
+        };
+        let mc = inner.mode_controller();
 
         let km = LocalizedKeymap::new(editor.clone(), inner);
         km.activate().unwrap();
@@ -385,13 +355,12 @@ pub mod tests {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
-        let mut inner: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
-        inner
-            .keymap_for_mode(TestMode::A)
-            .bind(&[kp('a')], move |_: &E| {
-                tx.send('x').unwrap();
-                Ok(())
-            });
+        let inner: ModalKeymap<E, TestMode> = modal_keymap! {
+            initial: TestMode::A,
+            [TestMode::A]: {
+                "a" => { tx.send('x').unwrap(); Ok(()) },
+            },
+        };
 
         let km = LocalizedKeymap::new(editor.clone(), inner);
         km.activate().unwrap();
@@ -418,13 +387,12 @@ pub mod tests {
         let tx_global = tx.clone();
         let tx_local = tx.clone();
 
-        let mut inner: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
-        inner
-            .keymap_for_mode(TestMode::A)
-            .bind(&[kp('a')], move |_: &E| {
-                tx_global.send('g').unwrap();
-                Ok(())
-            });
+        let inner: ModalKeymap<E, TestMode> = modal_keymap! {
+            initial: TestMode::A,
+            [TestMode::A]: {
+                "a" => { tx_global.send('g').unwrap(); Ok(()) },
+            },
+        };
 
         let shared_state = inner.shared_state();
         let mut local: ModalKeymap<E, TestMode> =
@@ -452,13 +420,12 @@ pub mod tests {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
-        let mut inner: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
-        inner
-            .keymap_for_mode(TestMode::A)
-            .bind(&[kp('a'), kp('b')], move |_: &E| {
-                tx.send('x').unwrap();
-                Ok(())
-            });
+        let inner: ModalKeymap<E, TestMode> = modal_keymap! {
+            initial: TestMode::A,
+            [TestMode::A]: {
+                "ab" => { tx.send('x').unwrap(); Ok(()) },
+            },
+        };
 
         let km = LocalizedKeymap::new(editor.clone(), inner);
         km.activate().unwrap();
@@ -480,16 +447,13 @@ pub mod tests {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
-        let mut inner: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
+        let inner: ModalKeymap<E, TestMode> = modal_keymap! {
+            initial: TestMode::A,
+            [TestMode::A]: {
+                "ab" => { tx.send('x').unwrap(); Ok(()) },
+            },
+        };
         let mc = inner.mode_controller();
-
-        // Two-key sequence in mode A.
-        inner
-            .keymap_for_mode(TestMode::A)
-            .bind(&[kp('a'), kp('b')], move |_: &E| {
-                tx.send('x').unwrap();
-                Ok(())
-            });
 
         let km = LocalizedKeymap::new(editor.clone(), inner);
         km.activate().unwrap();
@@ -516,7 +480,7 @@ pub mod tests {
     where
         E::BufferHandle: std::hash::Hash,
     {
-        let km: ModalKeymap<E, TestMode> = ModalKeymap::new(TestMode::A);
+        let km: ModalKeymap<E, TestMode> = modal_keymap! { initial: TestMode::A, };
         let mc_orig = km.mode_controller();
 
         // Advance original to mode B before cloning.
@@ -757,5 +721,54 @@ mod macro_tests {
         };
         let manual: ModalKeymap<MockEditor, Mode, MockAction> = ModalKeymap::new(Mode::Normal);
         assert_eq!(via_macro, manual);
+    }
+
+    #[test]
+    fn bare_block_with_editor_name() {
+        use std::sync::{Arc, Mutex};
+        let fired = Arc::new(Mutex::new(false));
+        let fired_clone = fired.clone();
+        let km: ModalKeymap<MockEditor, Mode> = modal_keymap! {
+            initial: Mode::Normal,
+            [Mode::Normal]: {
+                "j" => {
+                    *fired_clone.lock().unwrap() = true;
+                    Ok(())
+                },
+            },
+        };
+        let seq = parse_key_sequence("j").unwrap();
+        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq) {
+            action.call(&MockEditor).unwrap();
+        } else {
+            panic!("expected ExactMatch");
+        }
+        assert!(*fired.lock().unwrap());
+    }
+
+    #[test]
+    fn controller_bound_in_block() {
+        // `controller: ctrl` should make the mode controller available inside
+        // each bare block so mode transitions can be triggered from within actions.
+        let km: ModalKeymap<MockEditor, Mode> = modal_keymap! {
+            controller: ctrl,
+            initial: Mode::Normal,
+            [Mode::Normal]: {
+                "i" => {
+                    ctrl.set_mode(Mode::Insert);
+                    Ok(())
+                },
+            },
+        };
+        let mc = km.mode_controller();
+        assert_eq!(mc.current_mode(), Mode::Normal);
+
+        let seq = parse_key_sequence("i").unwrap();
+        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq) {
+            action.call(&MockEditor).unwrap();
+        } else {
+            panic!("expected ExactMatch");
+        }
+        assert_eq!(mc.current_mode(), Mode::Insert);
     }
 }

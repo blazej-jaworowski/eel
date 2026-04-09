@@ -176,38 +176,24 @@ impl<E: Editor, A: KeyAction<E> + Clone + Eq> Eq for KeyMapping<E, A> {}
 /// they support plain characters and angle-bracket notation (`<C-j>`,
 /// `<Enter>`, `<F1>`, etc.).
 ///
-/// Each action is passed directly to [`KeyMapping::add_binding`], so the
-/// resulting action type `A` is inferred from the expressions.  Use
-/// `Arc::new(...)` to produce `Arc<dyn KeyAction<E>>`, or a concrete
-/// action type such as `MockAction` for tests.
+/// An optional `editor: <name>` header enables bare block actions that are
+/// automatically wrapped in `Arc::new(move |<name>: &_| { ... })`:
 ///
 /// ```ignore
-/// // With a concrete action type:
-/// let km: KeyMapping<MyEditor, MyAction> = keymap! {
-///     "j"     => MyAction::MoveDown,
-///     "<C-j>" => MyAction::Ctrl,
+/// // With a named editor variable and bare blocks:
+/// let km: KeyMapping<MyEditor> = keymap! {
+///     editor: e,
+///     "j"     => { e.move_down(); Ok(()) },
+///     "<C-j>" => { e.ctrl_j(); Ok(()) },
 /// };
 ///
-/// // With Arc-boxed closures:
-/// let km: KeyMapping<MyEditor> = keymap! {
-///     "j"     => Arc::new(|_: &MyEditor| Ok(())),
+/// // Without editor: — actions must be explicit expressions:
+/// let km: KeyMapping<MyEditor, MyAction> = keymap! {
+///     "j"     => MyAction::MoveDown,
 ///     "<C-j>" => Arc::new(|_: &MyEditor| Ok(())),
 /// };
 /// ```
-#[macro_export]
-macro_rules! keymap {
-    ( $( $seq:expr => $action:expr ),* $(,)? ) => {{
-        let mut _m = $crate::keymap::KeyMapping::new();
-        $(
-            _m.add_binding(
-                &$crate::keymap::key::parse_key_sequence($seq)
-                    .expect("invalid key sequence in keymap! macro"),
-                $action,
-            );
-        )*
-        _m
-    }};
-}
+pub use eel_macros::keymap;
 
 /// A keymap that dispatches to a per-buffer local inner keymap first, then
 /// falls back to the global inner keymap `K`.
@@ -560,5 +546,46 @@ mod keymap_macro_tests {
         let a = km_with_actions(&[("j", 0)]);
         let b = km_with_actions(&[("k", 0)]);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn macro_bare_block_action() {
+        // `editor: e` + bare block → Arc-boxed closure; verify it fires.
+        use std::sync::{Arc, Mutex};
+        let fired = Arc::new(Mutex::new(false));
+        let fired_clone = fired.clone();
+        let km: KeyMapping<MockEditor, Arc<dyn KeyAction<MockEditor>>> = keymap! {
+            "j" => {
+                *fired_clone.lock().unwrap() = true;
+                Ok(())
+            },
+        };
+        let seq = parse_key_sequence("j").unwrap();
+        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq) {
+            action.call(&MockEditor).unwrap();
+        } else {
+            panic!("expected ExactMatch");
+        }
+        assert!(*fired.lock().unwrap());
+    }
+
+    #[test]
+    fn macro_mixed_block_and_expr() {
+        // Mix a bare block with an explicit expression in the same keymap!.
+        use std::sync::{Arc, Mutex};
+        let count = Arc::new(Mutex::new(0u32));
+        let count_clone = count.clone();
+        let km: KeyMapping<MockEditor, Arc<dyn KeyAction<MockEditor>>> = keymap! {
+            "a" => {
+                *count_clone.lock().unwrap() += 1;
+                Ok(())
+            },
+            "b" => Arc::new(|_: &MockEditor| Ok(())),
+        };
+        let seq_a = parse_key_sequence("a").unwrap();
+        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq_a) {
+            action.call(&MockEditor).unwrap();
+        }
+        assert_eq!(*count.lock().unwrap(), 1);
     }
 }
