@@ -460,6 +460,14 @@ mod tests {
         assert!(is_partial(&b, "a"));
         assert_eq!(exact(&b, "abc"), Some(2));
     }
+
+    #[test]
+    fn empty_sequence_exact_match() {
+        let mut b = KeyTrie::new();
+        // FIXME: Adding empty bindings should be disallowed or should have no effect
+        b.add_binding(&[], 99);
+        assert_eq!(exact(&b, ""), Some(99));
+    }
 }
 
 #[cfg(test)]
@@ -550,7 +558,7 @@ mod keymap_macro_tests {
 
     #[test]
     fn macro_bare_block_action() {
-        // `editor: e` + bare block → Arc-boxed closure; verify it fires.
+        // Bare block without `editor:` → expands to `move |_: &_| block`.
         use std::sync::{Arc, Mutex};
         let fired = Arc::new(Mutex::new(false));
         let fired_clone = fired.clone();
@@ -587,5 +595,29 @@ mod keymap_macro_tests {
             action.call(&MockEditor).unwrap();
         }
         assert_eq!(*count.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn named_editor_in_block() {
+        // `editor: e` where `e` is actually referenced — the named-parameter path
+        // (`move |e: &_| block`) rather than the anonymous path (`move |_: &_| block`).
+        use std::sync::{Arc, Mutex};
+        let fired = Arc::new(Mutex::new(false));
+        let fired_clone = fired.clone();
+        let km: KeyMapping<MockEditor, Arc<dyn KeyAction<MockEditor>>> = keymap! {
+            editor: e,
+            "j" => {
+                let _: &MockEditor = e; // proves `e` is in scope with the correct type
+                *fired_clone.lock().unwrap() = true;
+                Ok(())
+            },
+        };
+        let seq = parse_key_sequence("j").unwrap();
+        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq) {
+            action.call(&MockEditor).unwrap();
+        } else {
+            panic!("expected ExactMatch");
+        }
+        assert!(*fired.lock().unwrap());
     }
 }

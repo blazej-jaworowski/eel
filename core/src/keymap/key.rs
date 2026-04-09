@@ -430,4 +430,44 @@ mod tests {
             Err(ParseKeyError::UnknownNotation(_))
         ));
     }
+
+    #[test]
+    fn empty_sequence() {
+        assert_eq!(parse_key_sequence(""), Ok(vec![]));
+    }
+
+    #[test]
+    fn shift_on_non_alpha() {
+        // Shift on a digit or symbol: the char stays as-is with Modifiers::shift().
+        assert_eq!(
+            parse_key_sequence("<S-1>"),
+            Ok(vec![KeyPress::new(
+                Key::Char('1'),
+                Modifiers { ctrl: false, shift: true }
+            )])
+        );
+        assert_eq!(
+            parse_key_sequence("<S-!>"),
+            Ok(vec![KeyPress::new(
+                Key::Char('!'),
+                Modifiers { ctrl: false, shift: true }
+            )])
+        );
+    }
+
+    #[test]
+    fn ctrl_shift_special_key() {
+        let expected = KeyPress::new(
+            Key::Special(SpecialKey::Up),
+            Modifiers { ctrl: true, shift: true },
+        );
+        assert_eq!(seq("<C-S-Up>"), vec![expected.clone()]);
+        assert_eq!(seq("<S-C-Up>"), vec![expected]);
+    }
+
+    #[test]
+    fn function_key_boundary() {
+        // F0 is the lowest possible function-key index — valid syntactically.
+        assert_eq!(seq("<F0>"), vec![KeyPress::special(SpecialKey::F(0))]);
+    }
 }

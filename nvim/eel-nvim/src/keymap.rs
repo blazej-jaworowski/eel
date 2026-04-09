@@ -245,3 +245,113 @@ mod modal_tests {
         crate::test_utils::nvim_editor_factory
     );
 }
+
+#[cfg(test)]
+mod parse_key_notation_tests {
+    use super::parse_key_notation;
+    use eel::keymap::{
+        KeyPress,
+        key::{Key, Modifiers, SpecialKey},
+    };
+
+    fn ctrl(c: char) -> KeyPress {
+        KeyPress::new(Key::Char(c), Modifiers { ctrl: true, shift: false })
+    }
+
+    fn shift_special(k: SpecialKey) -> KeyPress {
+        KeyPress::new(Key::Special(k), Modifiers { ctrl: false, shift: true })
+    }
+
+    #[test]
+    fn empty_input_returns_none() {
+        assert_eq!(parse_key_notation(""), None);
+    }
+
+    #[test]
+    fn multichar_non_notation_returns_none() {
+        // A bare multi-char string that isn't angle-bracket notation is unrecognised.
+        assert_eq!(parse_key_notation("ab"), None);
+    }
+
+    #[test]
+    fn plain_single_char() {
+        assert_eq!(parse_key_notation("a"), Some(KeyPress::char('a')));
+        assert_eq!(parse_key_notation("Z"), Some(KeyPress::char('Z')));
+        assert_eq!(parse_key_notation("1"), Some(KeyPress::char('1')));
+    }
+
+    #[test]
+    fn cr_maps_to_enter() {
+        assert_eq!(
+            parse_key_notation("<CR>"),
+            Some(KeyPress::special(SpecialKey::Enter))
+        );
+        assert_eq!(
+            parse_key_notation("<Return>"),
+            Some(KeyPress::special(SpecialKey::Enter))
+        );
+    }
+
+    #[test]
+    fn esc_maps_to_escape() {
+        assert_eq!(
+            parse_key_notation("<Esc>"),
+            Some(KeyPress::special(SpecialKey::Escape))
+        );
+    }
+
+    #[test]
+    fn bs_maps_to_backspace() {
+        assert_eq!(
+            parse_key_notation("<BS>"),
+            Some(KeyPress::special(SpecialKey::Backspace))
+        );
+    }
+
+    #[test]
+    fn space_lt_bslash() {
+        assert_eq!(parse_key_notation("<Space>"), Some(KeyPress::char(' ')));
+        assert_eq!(parse_key_notation("<LT>"), Some(KeyPress::char('<')));
+        assert_eq!(parse_key_notation("<Bslash>"), Some(KeyPress::char('\\')));
+    }
+
+    #[test]
+    fn ctrl_letter_normalised() {
+        // keytrans emits <C-A> for ctrl+a; parse_angle_bracket lowercases.
+        assert_eq!(parse_key_notation("<C-A>"), Some(ctrl('a')));
+        assert_eq!(parse_key_notation("<C-j>"), Some(ctrl('j')));
+    }
+
+    #[test]
+    fn shift_letter_absorbed() {
+        // shift+alpha: encoded as uppercase char, shift bit cleared.
+        assert_eq!(parse_key_notation("<S-a>"), Some(KeyPress::char('A')));
+    }
+
+    #[test]
+    fn shift_special_key() {
+        assert_eq!(
+            parse_key_notation("<S-Up>"),
+            Some(shift_special(SpecialKey::Up))
+        );
+    }
+
+    #[test]
+    fn function_keys() {
+        assert_eq!(
+            parse_key_notation("<F1>"),
+            Some(KeyPress::special(SpecialKey::F(1)))
+        );
+        assert_eq!(
+            parse_key_notation("<F12>"),
+            Some(KeyPress::special(SpecialKey::F(12)))
+        );
+    }
+
+    #[test]
+    fn meta_alt_returns_none() {
+        // Meta/Alt combos are not representable in our model.
+        assert_eq!(parse_key_notation("<A-a>"), None);
+        assert_eq!(parse_key_notation("<M-a>"), None);
+    }
+}

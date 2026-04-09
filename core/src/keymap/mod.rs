@@ -1,12 +1,14 @@
 pub mod action;
 pub mod key;
 pub mod map;
+
 #[cfg(feature = "modal")]
 pub mod modal;
 
 pub use action::KeyAction;
 pub use key::{Key, KeyPress, KeySequence, Modifiers, SpecialKey};
 pub use map::{KeyMapping, Keymap, LocalizedKeymap, MatchResult, keymap};
+
 #[cfg(feature = "modal")]
 pub use modal::{ModalKeymap, Mode, ModeController, modal_keymap};
 
@@ -341,6 +343,64 @@ pub mod tests {
         assert_eq!(received, cases);
     }
 
+    pub fn test_keymap_remove_local<E: TestKeyEditor>(editor: E)
+    where
+        E::BufferHandle: std::hash::Hash,
+    {
+        let editor = Arc::new(editor);
+        let (tx, rx) = mpsc::channel::<char>();
+
+        let current_buf = editor.current_buffer().expect("no current buffer");
+
+        let tx1 = tx.clone();
+        let tx2 = tx.clone();
+
+        let mut km = LocalizedKeymap::new(
+            editor.clone(),
+            keymap! {
+                "a" => { tx1.send('g').unwrap(); Ok(()) },
+            },
+        );
+
+        // Add then immediately remove a local binding.
+        let local: KeyMapping<E> = keymap! {
+            "a" => { tx2.send('l').unwrap(); Ok(()) },
+        };
+        km.set_local(current_buf.clone(), local);
+        km.remove_local(&current_buf);
+
+        // Activate: no local binding present, global should fire.
+        editor.set_current_buffer(&current_buf).unwrap();
+        km.activate().unwrap();
+        editor.send_test_key(&kp('a'));
+
+        assert_eq!(collect(&rx), vec!['g']);
+    }
+
+    pub fn test_keymap_global_mut<E: TestKeyEditor>(editor: E)
+    where
+        E::BufferHandle: std::hash::Hash,
+    {
+        let editor = Arc::new(editor);
+        let (tx, rx) = mpsc::channel::<char>();
+
+        let mut km = LocalizedKeymap::new(editor.clone(), KeyMapping::<E>::new());
+
+        let tx1 = tx.clone();
+        km.global_mut().add_binding(
+            &[kp('z')],
+            Arc::new(move |_: &E| {
+                tx1.send('z').unwrap();
+                Ok(())
+            }),
+        );
+
+        km.activate().unwrap();
+        editor.send_test_key(&kp('z'));
+
+        assert_eq!(collect(&rx), vec!['z']);
+    }
+
     #[macro_export]
     macro_rules! eel_keyeditor_tests {
         ($test_tag:path, $editor_factory:expr, $prefix:tt) => {
@@ -361,6 +421,8 @@ pub mod tests {
                     test_keymap_no_match_resets,
                     test_keymap_local_binding_priority,
                     test_keymap_local_fallback_to_global,
+                    test_keymap_remove_local,
+                    test_keymap_global_mut,
                     test_keypress_roundtrip,
                 ],
             );

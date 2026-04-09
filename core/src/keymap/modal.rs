@@ -724,7 +724,7 @@ mod macro_tests {
     }
 
     #[test]
-    fn bare_block_with_editor_name() {
+    fn bare_block_action() {
         use std::sync::{Arc, Mutex};
         let fired = Arc::new(Mutex::new(false));
         let fired_clone = fired.clone();
@@ -770,5 +770,164 @@ mod macro_tests {
             panic!("expected ExactMatch");
         }
         assert_eq!(mc.current_mode(), Mode::Insert);
+    }
+
+    #[test]
+    fn named_editor_in_block() {
+        // `editor: e` referenced inside the block — the named-parameter path.
+        use std::sync::{Arc, Mutex};
+        let fired = Arc::new(Mutex::new(false));
+        let fired_clone = fired.clone();
+        let km: ModalKeymap<MockEditor, Mode> = modal_keymap! {
+            editor: e,
+            initial: Mode::Normal,
+            [Mode::Normal]: {
+                "j" => {
+                    let _: &MockEditor = e; // proves `e` is in scope with the correct type
+                    *fired_clone.lock().unwrap() = true;
+                    Ok(())
+                },
+            },
+        };
+        let seq = parse_key_sequence("j").unwrap();
+        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq) {
+            action.call(&MockEditor).unwrap();
+        } else {
+            panic!("expected ExactMatch");
+        }
+        assert!(*fired.lock().unwrap());
+    }
+
+    #[test]
+    fn editor_and_controller_together() {
+        // Both `editor: e` and `controller: ctrl` referenced in different blocks.
+        use std::sync::{Arc, Mutex};
+        let editor_seen = Arc::new(Mutex::new(false));
+        let editor_seen_clone = editor_seen.clone();
+        let km: ModalKeymap<MockEditor, Mode> = modal_keymap! {
+            editor: e,
+            controller: ctrl,
+            initial: Mode::Normal,
+            [Mode::Normal]: {
+                "j" => {
+                    let _: &MockEditor = e;
+                    *editor_seen_clone.lock().unwrap() = true;
+                    Ok(())
+                },
+                "i" => {
+                    let _: &MockEditor = e; // e is in scope; ctrl does the actual work
+                    ctrl.set_mode(Mode::Insert);
+                    Ok(())
+                },
+            },
+        };
+        let mc = km.mode_controller();
+
+        let seq_j = parse_key_sequence("j").unwrap();
+        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq_j) {
+            action.call(&MockEditor).unwrap();
+        } else {
+            panic!("expected ExactMatch for j");
+        }
+        assert!(*editor_seen.lock().unwrap());
+
+        let seq_i = parse_key_sequence("i").unwrap();
+        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq_i) {
+            action.call(&MockEditor).unwrap();
+        } else {
+            panic!("expected ExactMatch for i");
+        }
+        assert_eq!(mc.current_mode(), Mode::Insert);
+    }
+
+    #[test]
+    fn mixed_block_and_expr() {
+        // One binding is a bare block, another is an Arc expression — both ActionKind variants.
+        use std::sync::{Arc, Mutex};
+        let block_fired = Arc::new(Mutex::new(false));
+        let block_fired_clone = block_fired.clone();
+        let expr_fired = Arc::new(Mutex::new(false));
+        let expr_fired_clone = expr_fired.clone();
+        let km: ModalKeymap<MockEditor, Mode> = modal_keymap! {
+            initial: Mode::Normal,
+            [Mode::Normal]: {
+                "j" => {
+                    *block_fired_clone.lock().unwrap() = true;
+                    Ok(())
+                },
+                "k" => Arc::new(move |_: &MockEditor| {
+                    *expr_fired_clone.lock().unwrap() = true;
+                    Ok(())
+                }),
+            },
+        };
+
+        let seq_j = parse_key_sequence("j").unwrap();
+        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq_j) {
+            action.call(&MockEditor).unwrap();
+        } else {
+            panic!("expected ExactMatch for j");
+        }
+        assert!(*block_fired.lock().unwrap());
+
+        let seq_k = parse_key_sequence("k").unwrap();
+        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq_k) {
+            action.call(&MockEditor).unwrap();
+        } else {
+            panic!("expected ExactMatch for k");
+        }
+        assert!(*expr_fired.lock().unwrap());
+    }
+
+    #[test]
+    fn controller_only_some_blocks_use_it() {
+        // `controller:` is set, but one block uses it while another does not.
+        // Exercises the `block_uses_ident` path: only the block that references ctrl
+        // captures a clone; the other does not.
+        use std::sync::{Arc, Mutex};
+        let fired = Arc::new(Mutex::new(false));
+        let fired_clone = fired.clone();
+        let km: ModalKeymap<MockEditor, Mode> = modal_keymap! {
+            controller: ctrl,
+            initial: Mode::Normal,
+            [Mode::Normal]: {
+                "i" => {
+                    ctrl.set_mode(Mode::Insert); // uses ctrl → clone emitted
+                    Ok(())
+                },
+                "j" => {
+                    *fired_clone.lock().unwrap() = true; // does NOT use ctrl → no clone
+                    Ok(())
+                },
+            },
+        };
+        let mc = km.mode_controller();
+
+        let seq_j = parse_key_sequence("j").unwrap();
+        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq_j) {
+            action.call(&MockEditor).unwrap();
+        } else {
+            panic!("expected ExactMatch for j");
+        }
+        assert!(*fired.lock().unwrap());
+
+        let seq_i = parse_key_sequence("i").unwrap();
+        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq_i) {
+            action.call(&MockEditor).unwrap();
+        } else {
+            panic!("expected ExactMatch for i");
+        }
+        assert_eq!(mc.current_mode(), Mode::Insert);
+    }
+
+    #[test]
+    fn empty_mode_is_no_match() {
+        // A ModalKeymap started in a mode with no bindings returns NoMatch
+        // for any key sequence.
+        let km: ModalKeymap<MockEditor, Mode, MockAction> = modal_keymap! {
+            initial: Mode::Normal,
+        };
+        let seq = parse_key_sequence("j").unwrap();
+        assert!(matches!(km.match_sequence(&seq), MatchResult::NoMatch));
     }
 }
