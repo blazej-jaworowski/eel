@@ -1,66 +1,12 @@
 use proc_macro::TokenStream;
-use proc_macro_crate::{FoundCrate, crate_name};
-use proc_macro2::{Span, TokenStream as TokenStream2, TokenTree};
+use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{
-    Expr, ExprBlock, Ident, LitStr, Token,
+    Expr, Ident, Token,
     parse::{Parse, ParseStream, Result},
 };
 
-/// Returns `true` if `ident` appears anywhere in `block`'s tokens.
-fn block_uses_ident(block: &ExprBlock, ident: &Ident) -> bool {
-    fn scan(ts: TokenStream2, name: &str) -> bool {
-        for tt in ts {
-            match tt {
-                TokenTree::Ident(i) if i == name => return true,
-                TokenTree::Group(g) => {
-                    if scan(g.stream(), name) {
-                        return true;
-                    }
-                }
-                _ => {}
-            }
-        }
-        false
-    }
-    scan(quote! { #block }, &ident.to_string())
-}
-
-fn eel_path() -> TokenStream2 {
-    match crate_name("eel") {
-        Ok(FoundCrate::Itself) => quote! { crate },
-        Ok(FoundCrate::Name(name)) => {
-            let ident = Ident::new(&name, Span::call_site());
-            quote! { ::#ident }
-        }
-        Err(_) => quote! { ::eel },
-    }
-}
-
-enum ActionKind {
-    Block(ExprBlock),
-    Expr(Expr),
-}
-
-struct Binding {
-    seq: LitStr,
-    action: ActionKind,
-}
-
-impl Parse for Binding {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let seq: LitStr = input.parse()?;
-        input.parse::<Token![=>]>()?;
-
-        let action = if input.peek(syn::token::Brace) {
-            ActionKind::Block(input.parse::<ExprBlock>()?)
-        } else {
-            ActionKind::Expr(input.parse::<Expr>()?)
-        };
-
-        Ok(Binding { seq, action })
-    }
-}
+use crate::keymap::{ActionKind, Binding, KeymapInput};
 
 /// A `[Mode, ...]: { bindings }` group.
 struct ModeGroup {
@@ -158,7 +104,7 @@ pub fn modal_keymap(input: TokenStream) -> TokenStream {
         groups,
     } = syn::parse_macro_input!(input as ModalKeymapInput);
 
-    let eel = eel_path();
+    let eel = crate::eel_path();
 
     let initial_expr = match initial {
         Some(e) => quote! { #e },
@@ -174,79 +120,66 @@ pub fn modal_keymap(input: TokenStream) -> TokenStream {
 
     let ctrl_ident: Option<Ident> = controller_name;
 
-    let mut group_stmts = Vec::new();
+    let mut group_stmts: Vec<TokenStream2> = Vec::new();
 
     for ModeGroup { modes, bindings } in groups {
-        let mut binding_stmts = Vec::new();
-
-        for Binding { seq, action } in bindings {
-            let action_tokens = match action {
-                ActionKind::Block(block) => {
-                    let editor_pat = match &editor_name {
-                        Some(n) => quote! { #n },
-                        None => quote! { _ },
-                    };
-
-                    let closure = if let Some(ctrl) = &ctrl_ident {
-                        if block_uses_ident(&block, ctrl) {
-                            quote! {
-                                {
-                                    let #ctrl = #ctrl.clone();
-                                    move |#editor_pat: &_| #block
-                                }
+        // Build a KeymapInput for this mode group. When a controller is present,
+        // prepend `let ctrl = ctrl.clone(); let _ = &ctrl;` to every Block action
+        // so the controller is available inside each move closure regardless of
+        // whether the user references it.
+        let km_bindings: Vec<Binding> = if let Some(ctrl) = &ctrl_ident {
+            bindings
+                .into_iter()
+                .map(
+                    |Binding {
+                         seq,
+                         action,
+                         pre_closure,
+                     }| {
+                        let pre_closure = match &action {
+                            ActionKind::Block(_) => {
+                                quote! { let #ctrl = #ctrl.clone(); let _ = &#ctrl; }
                             }
-                        } else {
-                            quote! { move |#editor_pat: &_| #block }
+                            ActionKind::Expr(_) => pre_closure,
+                        };
+                        Binding {
+                            seq,
+                            action,
+                            pre_closure,
                         }
-                    } else {
-                        quote! { move |#editor_pat: &_| #block }
-                    };
+                    },
+                )
+                .collect()
+        } else {
+            bindings
+        };
 
-                    // Use `bind()` to constrain `_km` to `KeyMapping<E, Arc<dyn KeyAction<E>>>`.
-                    binding_stmts.push(quote! {
-                        _km.bind(
-                            &#eel::keymap::key::parse_key_sequence(#seq)
-                                .expect("invalid key sequence in modal_keymap! macro"),
-                            #closure,
-                        );
-                    });
-                    continue;
-                }
-                ActionKind::Expr(expr) => quote! { #expr },
-            };
-
-            binding_stmts.push(quote! {
-                _km.add_binding(
-                    &#eel::keymap::key::parse_key_sequence(#seq)
-                        .expect("invalid key sequence in modal_keymap! macro"),
-                    #action_tokens,
-                );
-            });
+        let km_expr = KeymapInput {
+            editor_name: editor_name.clone(),
+            bindings: km_bindings,
         }
+        .emit();
 
-        // Assign the KeyMapping to each mode in the group.
-        // The last mode move-assigns; earlier ones clone.
+        // Assign the emitted KeyMapping to each mode in this group.
+        // For a single mode, assign directly. For multiple modes, bind to a
+        // temporary and clone for all but the last.
         let n = modes.len();
-        let mut assign_stmts = Vec::new();
-        for (i, mode) in modes.into_iter().enumerate() {
-            if i + 1 < n {
-                assign_stmts.push(quote! {
-                    *_mkm.keymap_for_mode(#mode) = _km.clone();
-                });
-            } else {
-                assign_stmts.push(quote! {
-                    *_mkm.keymap_for_mode(#mode) = _km;
-                });
+        let assign_stmts: Vec<TokenStream2> = if n == 1 {
+            let mode = &modes[0];
+            vec![quote! { *_mkm.keymap_for_mode(#mode) = #km_expr; }]
+        } else {
+            let mut stmts = vec![quote! { let _km_val = #km_expr; }];
+            for (i, mode) in modes.iter().enumerate() {
+                if i + 1 < n {
+                    stmts.push(quote! { *_mkm.keymap_for_mode(#mode) = _km_val.clone(); });
+                } else {
+                    stmts.push(quote! { *_mkm.keymap_for_mode(#mode) = _km_val; });
+                }
             }
-        }
+            stmts
+        };
 
-        group_stmts.push(quote! {
-            {
-                let mut _km = #eel::keymap::KeyMapping::new();
-                #( #binding_stmts )*
-                #( #assign_stmts )*
-            }
-        });
+        group_stmts.push(quote! { { #( #assign_stmts )* } });
     }
 
     // Emit the mode controller binding if `controller:` was specified.

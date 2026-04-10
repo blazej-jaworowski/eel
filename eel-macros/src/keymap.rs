@@ -1,34 +1,25 @@
 use proc_macro::TokenStream;
-use proc_macro_crate::{FoundCrate, crate_name};
-use proc_macro2::{Span, TokenStream as TokenStream2};
+use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{
     Expr, ExprBlock, Ident, LitStr, Token,
     parse::{Parse, ParseStream, Result},
 };
 
-fn eel_path() -> TokenStream2 {
-    match crate_name("eel") {
-        Ok(FoundCrate::Itself) => quote! { crate },
-        Ok(FoundCrate::Name(name)) => {
-            let ident = Ident::new(&name, Span::call_site());
-            quote! { ::#ident }
-        }
-        Err(_) => quote! { ::eel },
-    }
-}
-
 /// A single binding arm: `"seq" => ACTION`
 ///
 /// ACTION is either a bare braced block `{ ... }` or an arbitrary expression.
-enum ActionKind {
+pub(crate) enum ActionKind {
     Block(ExprBlock),
     Expr(Expr),
 }
 
-struct Binding {
-    seq: LitStr,
-    action: ActionKind,
+pub(crate) struct Binding {
+    pub(crate) seq: LitStr,
+    pub(crate) action: ActionKind,
+    /// Tokens emitted in a wrapping block immediately before the `move` closure,
+    /// allowing callers to clone captured variables without moving them.
+    pub(crate) pre_closure: TokenStream2,
 }
 
 impl Parse for Binding {
@@ -45,40 +36,42 @@ impl Parse for Binding {
             ActionKind::Expr(input.parse::<Expr>()?)
         };
 
-        Ok(Binding { seq, action })
+        Ok(Binding {
+            seq,
+            action,
+            pre_closure: TokenStream2::new(),
+        })
     }
 }
 
-struct KeymapInput {
-    editor_name: Option<Ident>,
-    bindings: Vec<Binding>,
+pub(crate) struct KeymapInput {
+    pub(crate) editor_name: Option<Ident>,
+    pub(crate) bindings: Vec<Binding>,
 }
 
 impl Parse for KeymapInput {
     fn parse(input: ParseStream) -> Result<Self> {
-        let mut editor_name = None;
-        let mut bindings = Vec::new();
-
-        while !input.is_empty() {
-            // Peek for `editor: IDENT` header (keyword `editor` followed by `:`)
-            if input.peek(Ident) {
-                let fork = input.fork();
-                let kw: Ident = fork.parse()?;
-                if kw == "editor" && fork.peek(Token![:]) {
-                    // Consume from real stream
-                    input.parse::<Ident>()?;
-                    input.parse::<Token![:]>()?;
-                    let name: Ident = input.parse()?;
-                    editor_name = Some(name);
-                    // Optional trailing comma
-                    let _ = input.parse::<Token![,]>();
-                    continue;
-                }
+        // Parse optional `editor: IDENT` header — only allowed at the top,
+        // before any bindings.
+        let editor_name = if input.peek(Ident) {
+            let fork = input.fork();
+            let kw: Ident = fork.parse()?;
+            if kw == "editor" && fork.peek(Token![:]) {
+                input.parse::<Ident>()?;
+                input.parse::<Token![:]>()?;
+                let name: Ident = input.parse()?;
+                let _ = input.parse::<Token![,]>();
+                Some(name)
+            } else {
+                None
             }
+        } else {
+            None
+        };
 
-            // Parse binding
-            let binding: Binding = input.parse()?;
-            bindings.push(binding);
+        let mut bindings = Vec::new();
+        while !input.is_empty() {
+            bindings.push(input.parse::<Binding>()?);
             let _ = input.parse::<Token![,]>();
         }
 
@@ -89,50 +82,54 @@ impl Parse for KeymapInput {
     }
 }
 
-pub fn keymap(input: TokenStream) -> TokenStream {
-    let KeymapInput {
-        editor_name,
-        bindings,
-    } = syn::parse_macro_input!(input as KeymapInput);
-
-    let eel = eel_path();
-
-    let mut binding_stmts = Vec::new();
-
-    for Binding { seq, action } in bindings {
-        let action_tokens = match action {
-            ActionKind::Block(block) => {
-                let editor_pat = match &editor_name {
-                    Some(n) => quote! { #n },
-                    None => quote! { _ },
-                };
-                // Use `bind()` which takes `impl KeyAction<E>` directly, constraining
-                // `_m` to `KeyMapping<E, Arc<dyn KeyAction<E>>>` and allowing coercion.
-                binding_stmts.push(quote! {
-                    _m.bind(
-                        &#eel::keymap::key::parse_key_sequence(#seq)
-                            .expect("invalid key sequence in keymap! macro"),
-                        move |#editor_pat: &_| #block,
-                    );
-                });
-                continue;
-            }
-            ActionKind::Expr(expr) => quote! { #expr },
+impl KeymapInput {
+    pub(crate) fn emit(&self) -> TokenStream2 {
+        let eel = crate::eel_path();
+        let editor_pat = match &self.editor_name {
+            Some(n) => quote! { #n },
+            None => quote! { _ },
         };
 
-        binding_stmts.push(quote! {
-            _m.add_binding(
-                &#eel::keymap::key::parse_key_sequence(#seq)
-                    .expect("invalid key sequence in keymap! macro"),
-                #action_tokens,
-            );
-        });
-    }
+        let mut binding_stmts = Vec::new();
 
-    quote! {{
-        let mut _m = #eel::keymap::KeyMapping::new();
-        #( #binding_stmts )*
-        _m
-    }}
-    .into()
+        for Binding {
+            seq,
+            action,
+            pre_closure,
+        } in &self.bindings
+        {
+            match action {
+                ActionKind::Block(block) => {
+                    // Wrap the move closure in a block so that `pre_closure` tokens
+                    // (e.g. variable clones) are evaluated outside the move boundary.
+                    binding_stmts.push(quote! {
+                        _m.bind(
+                            &#eel::keymap::key::parse_key_sequence(#seq)
+                                .expect("invalid key sequence in keymap! macro"),
+                            { #pre_closure move |#editor_pat: &_| #block },
+                        );
+                    });
+                }
+                ActionKind::Expr(expr) => {
+                    binding_stmts.push(quote! {
+                        _m.add_binding(
+                            &#eel::keymap::key::parse_key_sequence(#seq)
+                                .expect("invalid key sequence in keymap! macro"),
+                            #expr,
+                        );
+                    });
+                }
+            }
+        }
+
+        quote! {{
+            let mut _m = #eel::keymap::KeyMapping::new();
+            #( #binding_stmts )*
+            _m
+        }}
+    }
+}
+
+pub fn keymap(input: TokenStream) -> TokenStream {
+    syn::parse_macro_input!(input as KeymapInput).emit().into()
 }
