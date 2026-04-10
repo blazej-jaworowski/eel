@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, strum::Display, strum::EnumString)]
 pub enum SpecialKey {
     Enter,
     Escape,
@@ -14,8 +14,16 @@ pub enum SpecialKey {
     PageDown,
     Delete,
     Insert,
+    #[strum(to_string = "F{0}", disabled)]
     F(u8),
+    #[strum(to_string = "{0}", disabled)]
     Unknown(String),
+}
+
+impl From<SpecialKey> for String {
+    fn from(sk: SpecialKey) -> String {
+        sk.to_string()
+    }
 }
 
 /// Errors produced by [`parse_key_sequence`].
@@ -25,38 +33,6 @@ pub enum ParseKeyError {
     UnclosedBracket,
     #[error("unknown key notation '<{0}>'")]
     UnknownNotation(String),
-}
-
-impl TryFrom<&str> for SpecialKey {
-    type Error = ParseKeyError;
-
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        let key = match s {
-            "Enter" => Self::Enter,
-            "Escape" => Self::Escape,
-            "Backspace" => Self::Backspace,
-            "Tab" => Self::Tab,
-            "Up" => Self::Up,
-            "Down" => Self::Down,
-            "Left" => Self::Left,
-            "Right" => Self::Right,
-            "Home" => Self::Home,
-            "End" => Self::End,
-            "PageUp" => Self::PageUp,
-            "PageDown" => Self::PageDown,
-            "Delete" => Self::Delete,
-            "Insert" => Self::Insert,
-            _ => {
-                return s
-                    .strip_prefix('F')
-                    .and_then(|n| n.parse::<u8>().ok())
-                    .map(Self::F)
-                    .ok_or_else(|| ParseKeyError::UnknownNotation(s.to_string()));
-            }
-        };
-
-        Ok(key)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -203,7 +179,13 @@ fn parse_angle_bracket(inner: &str) -> Result<KeyPress, ParseKeyError> {
             Key::Char(c)
         }
     } else {
-        Key::Special(SpecialKey::try_from(rest)?)
+        let sk = if let Some(n) = rest.strip_prefix('F').and_then(|n| n.parse::<u8>().ok()) {
+            SpecialKey::F(n)
+        } else {
+            rest.parse()
+                .map_err(|_| ParseKeyError::UnknownNotation(rest.to_string()))?
+        };
+        Key::Special(sk)
     };
 
     Ok(KeyPress::new(key, mods))

@@ -3,6 +3,7 @@ resolver = "2"
 
 members = [
     "core",
+    "eel-key-parse",
     "eel-macros",
     "nvim/eel-nvim",
     "nvim/eel-nvim-macros",

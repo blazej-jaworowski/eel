@@ -1,5 +1,7 @@
 pub mod action;
-pub mod key;
+pub mod key {
+    pub use eel_key_parse::*;
+}
 pub mod map;
 
 #[cfg(feature = "modal")]

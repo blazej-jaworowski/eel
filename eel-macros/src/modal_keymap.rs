@@ -154,11 +154,15 @@ pub fn modal_keymap(input: TokenStream) -> TokenStream {
             bindings
         };
 
-        let km_expr = KeymapInput {
+        let km_expr = match (KeymapInput {
             editor_name: editor_name.clone(),
             bindings: km_bindings,
-        }
-        .emit();
+        })
+        .emit()
+        {
+            Ok(ts) => ts,
+            Err(e) => return e.into_compile_error().into(),
+        };
 
         // Assign the emitted KeyMapping to each mode in this group.
         // For a single mode, assign directly. For multiple modes, bind to a

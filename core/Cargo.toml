@@ -13,6 +13,7 @@ paste = { version = "1.0.15", optional = true }
 rayon = { version = "1.11.0", optional = true }
 sequence_trie = { version = "0.3.6", optional = true }
 eel-macros = { version = "0.0.3", path = "../eel-macros" }
+eel-key-parse = { version = "0.0.3", path = "../eel-key-parse", optional = true }
 
 [features]
 default = ["cursor", "mark", "region", "window", "keymap", "modal"]
@@ -21,5 +22,5 @@ cursor = []
 mark = []
 region = ["mark"]
 window = []
-keymap = ["dep:sequence_trie", "eel-macros/keymap"]
+keymap = ["dep:sequence_trie", "dep:eel-key-parse", "eel-macros/keymap"]
 modal = ["keymap", "eel-macros/modal"]

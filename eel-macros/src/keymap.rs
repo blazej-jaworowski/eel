@@ -83,7 +83,7 @@ impl Parse for KeymapInput {
 }
 
 impl KeymapInput {
-    pub(crate) fn emit(&self) -> TokenStream2 {
+    pub(crate) fn emit(&self) -> syn::Result<TokenStream2> {
         let eel = crate::eel_path();
         let editor_pat = match &self.editor_name {
             Some(n) => quote! { #n },
@@ -98,38 +98,79 @@ impl KeymapInput {
             pre_closure,
         } in &self.bindings
         {
+            let key_presses = eel_key_parse::parse_key_sequence(&seq.value())
+                .map_err(|e| syn::Error::new(seq.span(), format!("invalid key sequence: {e}")))?;
+            let kp_tokens: Vec<TokenStream2> = key_presses
+                .iter()
+                .map(|kp| emit_key_press(&eel, kp))
+                .collect();
+            let seq_expr = quote! { &[#(#kp_tokens,)*] };
+
             match action {
                 ActionKind::Block(block) => {
                     // Wrap the move closure in a block so that `pre_closure` tokens
                     // (e.g. variable clones) are evaluated outside the move boundary.
                     binding_stmts.push(quote! {
                         _m.bind(
-                            &#eel::keymap::key::parse_key_sequence(#seq)
-                                .expect("invalid key sequence in keymap! macro"),
+                            #seq_expr,
                             { #pre_closure move |#editor_pat: &_| #block },
                         );
                     });
                 }
                 ActionKind::Expr(expr) => {
                     binding_stmts.push(quote! {
-                        _m.add_binding(
-                            &#eel::keymap::key::parse_key_sequence(#seq)
-                                .expect("invalid key sequence in keymap! macro"),
-                            #expr,
-                        );
+                        _m.add_binding(#seq_expr, #expr);
                     });
                 }
             }
         }
 
-        quote! {{
+        Ok(quote! {{
             let mut _m = #eel::keymap::KeyMapping::new();
             #( #binding_stmts )*
             _m
-        }}
+        }})
+    }
+}
+
+fn emit_key_press(eel: &TokenStream2, kp: &eel_key_parse::KeyPress) -> TokenStream2 {
+    let key = emit_key(eel, &kp.key);
+    let ctrl = kp.modifiers.ctrl;
+    let shift = kp.modifiers.shift;
+    quote! {
+        #eel::keymap::key::KeyPress::new(
+            #key,
+            #eel::keymap::key::Modifiers { ctrl: #ctrl, shift: #shift },
+        )
+    }
+}
+
+fn emit_key(eel: &TokenStream2, key: &eel_key_parse::Key) -> TokenStream2 {
+    match key {
+        eel_key_parse::Key::Char(c) => quote! { #eel::keymap::key::Key::Char(#c) },
+        eel_key_parse::Key::Special(s) => {
+            let special = emit_special_key(eel, s);
+            quote! { #eel::keymap::key::Key::Special(#special) }
+        }
+    }
+}
+
+fn emit_special_key(eel: &TokenStream2, sk: &eel_key_parse::SpecialKey) -> TokenStream2 {
+    let p = quote! { #eel::keymap::key::SpecialKey };
+    match sk {
+        eel_key_parse::SpecialKey::F(n) => quote! { #p::F(#n) },
+        eel_key_parse::SpecialKey::Unknown(s) => quote! { #p::Unknown(#s.to_string()) },
+        _ => {
+            let name: syn::Ident = syn::parse_str(&sk.to_string()).unwrap();
+            quote! { #p::#name }
+        }
     }
 }
 
 pub fn keymap(input: TokenStream) -> TokenStream {
-    syn::parse_macro_input!(input as KeymapInput).emit().into()
+    let input = syn::parse_macro_input!(input as KeymapInput);
+    input
+        .emit()
+        .unwrap_or_else(|e| e.into_compile_error())
+        .into()
 }
