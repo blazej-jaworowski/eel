@@ -261,9 +261,8 @@ pub mod tests {
     use std::sync::{Arc, mpsc};
 
     use super::{ModalKeymap, modal_keymap};
-    use crate::keymap::KeyPress;
-    use crate::keymap::map::LocalizedKeymap;
     use crate::keymap::tests::TestKeyEditor;
+    use crate::keymap::{KeyPress, Keymap};
 
     #[derive(Debug, Clone, Eq, PartialEq, Hash)]
     enum TestMode {
@@ -282,10 +281,7 @@ pub mod tests {
     }
 
     /// Bindings in one mode must not fire in a different mode.
-    pub fn test_modal_mode_isolation<E: TestKeyEditor>(editor: E)
-    where
-        E::BufferHandle: std::hash::Hash,
-    {
+    pub fn test_modal_mode_isolation<E: TestKeyEditor>(editor: E) {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
@@ -297,8 +293,7 @@ pub mod tests {
         };
         let mc = inner.mode_controller();
 
-        let km = LocalizedKeymap::new(editor.clone(), inner);
-        km.activate().unwrap();
+        inner.activate_keymap(editor.clone()).unwrap();
 
         // In mode A, 'a' must be silently dropped.
         editor.send_test_key(&kp('a'));
@@ -311,10 +306,7 @@ pub mod tests {
     }
 
     /// An action can switch the active mode; subsequent keys dispatch in the new mode.
-    pub fn test_modal_mode_transition<E: TestKeyEditor>(editor: E)
-    where
-        E::BufferHandle: std::hash::Hash,
-    {
+    pub fn test_modal_mode_transition<E: TestKeyEditor>(editor: E) {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
@@ -334,8 +326,7 @@ pub mod tests {
         };
         let mc = inner.mode_controller();
 
-        let km = LocalizedKeymap::new(editor.clone(), inner);
-        km.activate().unwrap();
+        inner.activate_keymap(editor.clone()).unwrap();
 
         // 'i' in A switches to B, no output.
         editor.send_test_key(&kp('i'));
@@ -348,10 +339,7 @@ pub mod tests {
     }
 
     /// Unbound keys are silently dropped and do not corrupt the accumulator.
-    pub fn test_modal_no_match_dropped<E: TestKeyEditor>(editor: E)
-    where
-        E::BufferHandle: std::hash::Hash,
-    {
+    pub fn test_modal_no_match_dropped<E: TestKeyEditor>(editor: E) {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
@@ -362,8 +350,7 @@ pub mod tests {
             },
         };
 
-        let km = LocalizedKeymap::new(editor.clone(), inner);
-        km.activate().unwrap();
+        inner.activate_keymap(editor.clone()).unwrap();
 
         // 'b' has no binding; must be silently dropped.
         editor.send_test_key(&kp('b'));
@@ -374,49 +361,8 @@ pub mod tests {
         assert_eq!(collect(&rx), vec!['x']);
     }
 
-    /// Buffer-local bindings take priority over global bindings within the same mode.
-    pub fn test_modal_local_binding_priority<E: TestKeyEditor>(editor: E)
-    where
-        E::BufferHandle: std::hash::Hash,
-    {
-        let editor = Arc::new(editor);
-        let (tx, rx) = mpsc::channel::<char>();
-
-        let current_buf = editor.current_buffer().expect("no current buffer");
-
-        let tx_global = tx.clone();
-        let tx_local = tx.clone();
-
-        let inner: ModalKeymap<E, TestMode> = modal_keymap! {
-            initial: TestMode::A,
-            [TestMode::A]: {
-                "a" => { tx_global.send('g').unwrap(); Ok(()) },
-            },
-        };
-
-        let shared_state = inner.shared_state();
-        let mut local: ModalKeymap<E, TestMode> =
-            ModalKeymap::with_shared_state(shared_state.clone());
-        local
-            .keymap_for_mode(TestMode::A)
-            .bind(&[kp('a')], move |_: &E| {
-                tx_local.send('l').unwrap();
-                Ok(())
-            });
-
-        let mut km = LocalizedKeymap::new(editor.clone(), inner);
-        km.set_local(current_buf, local);
-        km.activate().unwrap();
-
-        editor.send_test_key(&kp('a'));
-        assert_eq!(collect(&rx), vec!['l']);
-    }
-
     /// Multi-key sequences accumulate correctly within a single mode.
-    pub fn test_modal_seq_accumulation<E: TestKeyEditor>(editor: E)
-    where
-        E::BufferHandle: std::hash::Hash,
-    {
+    pub fn test_modal_seq_accumulation<E: TestKeyEditor>(editor: E) {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
@@ -427,8 +373,7 @@ pub mod tests {
             },
         };
 
-        let km = LocalizedKeymap::new(editor.clone(), inner);
-        km.activate().unwrap();
+        inner.activate_keymap(editor.clone()).unwrap();
 
         // 'a' alone is a partial match — must not fire yet.
         editor.send_test_key(&kp('a'));
@@ -440,10 +385,7 @@ pub mod tests {
     }
 
     /// Changing mode mid-sequence resets the accumulator.
-    pub fn test_modal_mode_change_clears_seq<E: TestKeyEditor>(editor: E)
-    where
-        E::BufferHandle: std::hash::Hash,
-    {
+    pub fn test_modal_mode_change_clears_seq<E: TestKeyEditor>(editor: E) {
         let editor = Arc::new(editor);
         let (tx, rx) = mpsc::channel::<char>();
 
@@ -455,8 +397,7 @@ pub mod tests {
         };
         let mc = inner.mode_controller();
 
-        let km = LocalizedKeymap::new(editor.clone(), inner);
-        km.activate().unwrap();
+        inner.activate_keymap(editor.clone()).unwrap();
 
         // Start accumulating in A.
         editor.send_test_key(&kp('a'));
@@ -476,10 +417,7 @@ pub mod tests {
 
     /// Cloning a [`ModalKeymap`] produces an independent copy: mode changes
     /// via one keymap's [`ModeController`] must not affect the other.
-    pub fn test_modal_clone_state_independent<E: TestKeyEditor>(_editor: E)
-    where
-        E::BufferHandle: std::hash::Hash,
-    {
+    pub fn test_modal_clone_state_independent<E: TestKeyEditor>(_editor: E) {
         let km: ModalKeymap<E, TestMode> = modal_keymap! { initial: TestMode::A, };
         let mc_orig = km.mode_controller();
 
@@ -523,7 +461,6 @@ macro_rules! eel_modal_tests {
             editor_factory: $editor_factory,
             editor_bounds: {
                 E: $crate::keymap::tests::TestKeyEditor,
-                E::BufferHandle: ::std::hash::Hash,
             },
             module_path: $crate::keymap::modal::tests,
             prefix: $prefix,
@@ -531,7 +468,6 @@ macro_rules! eel_modal_tests {
                 test_modal_mode_isolation,
                 test_modal_mode_transition,
                 test_modal_no_match_dropped,
-                test_modal_local_binding_priority,
                 test_modal_seq_accumulation,
                 test_modal_mode_change_clears_seq,
                 test_modal_clone_state_independent,

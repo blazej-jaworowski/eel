@@ -34,7 +34,7 @@ pub trait KeyEditor: Editor {
 pub mod tests {
     use std::sync::{Arc, mpsc};
 
-    use super::{KeyEditor, KeyPress, LocalizedKeymap, keymap};
+    use super::{KeyEditor, KeyPress, Keymap, LocalizedKeymap, keymap};
     use crate::keymap::key::{Key, Modifiers};
     use crate::keymap::map::KeyMapping;
 
@@ -401,6 +401,82 @@ pub mod tests {
         assert_eq!(collect(&rx), vec!['z']);
     }
 
+    /// Bind a [`KeyMapping`] directly via [`Keymap::activate_keymap`] (no
+    /// [`LocalizedKeymap`] wrapper).
+    pub fn test_keymap_direct_activate<E: TestKeyEditor>(editor: E) {
+        let editor = Arc::new(editor);
+        let (tx, rx) = mpsc::channel::<char>();
+
+        let tx1 = tx.clone();
+        let tx2 = tx.clone();
+
+        let km: KeyMapping<E> = keymap! {
+            "a"  => { tx1.send('a').unwrap(); Ok(()) },
+            "bc" => { tx2.send('b').unwrap(); Ok(()) },
+        };
+
+        km.activate_keymap(editor.clone()).unwrap();
+
+        editor.send_test_key(&kp('a'));
+        assert_eq!(collect(&rx), vec!['a']);
+
+        editor.send_test_key(&kp('b'));
+        assert_eq!(collect(&rx), vec![], "partial match must not fire");
+
+        editor.send_test_key(&kp('c'));
+        assert_eq!(collect(&rx), vec!['b']);
+    }
+
+    /// An empty-sequence catch-all binding fires for any keypress that has no
+    /// more-specific match, but not for partial matches.
+    pub fn test_keymap_catchall<E: TestKeyEditor>(editor: E) {
+        let editor = Arc::new(editor);
+        let (tx, rx) = mpsc::channel::<char>();
+
+        let tx1 = tx.clone();
+        let tx2 = tx.clone();
+
+        let km: KeyMapping<E> = keymap! {
+            ""   => { tx1.send('c').unwrap(); Ok(()) }, // catch-all
+            "ab" => { tx2.send('x').unwrap(); Ok(()) },
+        };
+
+        km.activate_keymap(editor.clone()).unwrap();
+
+        // Unmatched single key → catch-all fires.
+        editor.send_test_key(&kp('z'));
+        assert_eq!(
+            collect(&rx),
+            vec!['c'],
+            "unmatched key should fire catch-all"
+        );
+
+        // Partial match → catch-all must NOT fire (still accumulating).
+        editor.send_test_key(&kp('a'));
+        assert_eq!(
+            collect(&rx),
+            vec![],
+            "partial match must not fire catch-all"
+        );
+
+        // Unmatched continuation ("az") → no specific binding → catch-all fires.
+        editor.send_test_key(&kp('z'));
+        assert_eq!(
+            collect(&rx),
+            vec!['c'],
+            "unmatched continuation should fire catch-all"
+        );
+
+        // Specific binding wins — catch-all must be silent.
+        editor.send_test_key(&kp('a'));
+        editor.send_test_key(&kp('b'));
+        assert_eq!(
+            collect(&rx),
+            vec!['x'],
+            "specific binding must not be shadowed by catch-all"
+        );
+    }
+
     #[macro_export]
     macro_rules! eel_keyeditor_tests {
         ($test_tag:path, $editor_factory:expr, $prefix:tt) => {
@@ -423,6 +499,8 @@ pub mod tests {
                     test_keymap_local_fallback_to_global,
                     test_keymap_remove_local,
                     test_keymap_global_mut,
+                    test_keymap_direct_activate,
+                    test_keymap_catchall,
                     test_keypress_roundtrip,
                 ],
             );
