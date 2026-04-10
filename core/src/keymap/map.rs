@@ -27,6 +27,41 @@ pub enum MatchResult<A> {
 pub trait Keymap<E: Editor> {
     type Action: KeyAction<E> + Clone;
     fn match_sequence(&self, seq: &[KeyPress]) -> MatchResult<Self::Action>;
+
+    /// Activate this keymap on `editor`.
+    ///
+    /// Calls [`KeyEditor::capture_keys`] to register a permanent handler.
+    /// Key-press accumulation and binding lookup:
+    /// - **Exact match**: action is called, accumulator is reset.
+    /// - **Partial match only**: accumulator grows, waiting for the next key.
+    /// - **No match**: accumulator is silently reset.
+    fn activate_keymap(self, editor: Arc<E>) -> Result<()>
+    where
+        Self: Sized + Send + Sync + 'static,
+        E: KeyEditor + 'static,
+    {
+        let keymap = Arc::new(self);
+        let current_seq: Arc<Mutex<KeySequence>> = Arc::new(Mutex::new(Vec::new()));
+        editor.capture_keys({
+            let editor = editor.clone();
+            move |key_press| {
+                let mut seq = current_seq.lock().unwrap();
+                seq.push(key_press.clone());
+
+                let result = keymap.match_sequence(&seq);
+
+                match result {
+                    MatchResult::ExactMatch(action) => {
+                        seq.clear();
+                        drop(seq);
+                        _ = action.call(&editor).log_err_msg("Keymap action failed");
+                    }
+                    MatchResult::PartialMatch => { /* keep accumulating */ }
+                    MatchResult::NoMatch => seq.clear(),
+                }
+            }
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -318,35 +353,10 @@ where
 {
     /// Activate this keymap on the editor supplied at construction time.
     ///
-    /// Calls [`KeyEditor::capture_keys`] to register a permanent handler.
-    /// Key-press accumulation and binding lookup:
-    /// - **Exact match** (local takes priority over global): action is called,
-    ///   accumulator is reset.
-    /// - **Partial match only**: accumulator grows, waiting for the next key.
-    /// - **No match**: accumulator is silently reset.
+    /// Delegates to [`Keymap::activate_keymap`].
     pub fn activate(self) -> Result<()> {
         let editor = self.editor.clone();
-        let keymap = Arc::new(self);
-        let current_seq: Arc<Mutex<KeySequence>> = Arc::new(Mutex::new(Vec::new()));
-
-        editor.capture_keys(move |key_press| {
-            let mut seq = current_seq.lock().unwrap();
-            seq.push(key_press.clone());
-
-            let result = keymap.match_sequence(&seq);
-
-            match result {
-                MatchResult::ExactMatch(action) => {
-                    seq.clear();
-                    drop(seq);
-                    _ = action
-                        .call(&keymap.editor)
-                        .log_err_msg("Keymap action failed");
-                }
-                MatchResult::PartialMatch => { /* keep accumulating */ }
-                MatchResult::NoMatch => seq.clear(),
-            }
-        })
+        self.activate_keymap(editor)
     }
 }
 
