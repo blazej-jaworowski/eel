@@ -255,11 +255,23 @@ mod parse_key_notation_tests {
     };
 
     fn ctrl(c: char) -> KeyPress {
-        KeyPress::new(Key::Char(c), Modifiers { ctrl: true, shift: false })
+        KeyPress::new(
+            Key::Char(c),
+            Modifiers {
+                ctrl: true,
+                shift: false,
+            },
+        )
     }
 
     fn shift_special(k: SpecialKey) -> KeyPress {
-        KeyPress::new(Key::Special(k), Modifiers { ctrl: false, shift: true })
+        KeyPress::new(
+            Key::Special(k),
+            Modifiers {
+                ctrl: false,
+                shift: true,
+            },
+        )
     }
 
     #[test]

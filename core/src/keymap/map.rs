@@ -56,8 +56,17 @@ impl<A: Clone> KeyTrie<A> {
     }
 
     fn match_sequence(&self, seq: &[KeyPress]) -> MatchResult<A> {
+        // An empty sequence has not accumulated any keypress — never matches.
+        if seq.is_empty() {
+            return MatchResult::NoMatch;
+        }
         match self.inner.get_node(seq) {
-            None => MatchResult::NoMatch,
+            // No trie node for this sequence.  Fall back to the root catch-all binding
+            // if one has been registered via `add_binding(&[], action)`.
+            None => match self.inner.value() {
+                Some(a) => MatchResult::ExactMatch(a.clone()),
+                None => MatchResult::NoMatch,
+            },
             Some(node) => match node.value() {
                 Some(a) => MatchResult::ExactMatch(a.clone()),
                 // SequenceTrie invariant: a node with no value always has children.
@@ -102,6 +111,18 @@ impl<E: Editor, A: KeyAction<E> + Clone> KeyMapping<E, A> {
     }
 
     /// Register `action` for `seq`, replacing any existing binding.
+    ///
+    /// # Empty-sequence catch-all
+    ///
+    /// Passing `seq = &[]` registers a **catch-all** action.  Specifically:
+    ///
+    /// - [`Keymap::match_sequence`] returns [`MatchResult::ExactMatch`] with the
+    ///   catch-all action for any non-empty sequence that has no more specific match.
+    /// - The catch-all does **not** override [`MatchResult::PartialMatch`] —
+    ///   if the sequence is a strict prefix of a longer registered binding,
+    ///   [`MatchResult::PartialMatch`] is returned as normal.
+    /// - [`Keymap::match_sequence`] called with an empty slice always returns
+    ///   [`MatchResult::NoMatch`], regardless of whether a catch-all is registered.
     pub fn add_binding(&mut self, seq: &[KeyPress], action: A) {
         self.inner.add_binding(seq, action);
     }
@@ -462,11 +483,45 @@ mod tests {
     }
 
     #[test]
-    fn empty_sequence_exact_match() {
+    fn empty_sequence_is_no_match() {
+        // match_sequence(&[]) always returns NoMatch — no keypress has been accumulated.
         let mut b = KeyTrie::new();
-        // FIXME: Adding empty bindings should be disallowed or should have no effect
+        b.add_binding(&seq("a"), 1);
+        assert!(is_no_match(&b, ""));
+
+        // Even with a root catch-all binding, empty input is NoMatch.
         b.add_binding(&[], 99);
-        assert_eq!(exact(&b, ""), Some(99));
+        assert!(is_no_match(&b, ""));
+    }
+
+    #[test]
+    fn root_binding_fires_as_catchall() {
+        // A root binding (`&[]`) fires for any key that has no more specific match.
+        let mut b = KeyTrie::new();
+        b.add_binding(&[], 99);
+        assert_eq!(exact(&b, "a"), Some(99));
+        assert_eq!(exact(&b, "z"), Some(99));
+    }
+
+    #[test]
+    fn root_binding_does_not_override_specific() {
+        // A specific binding shadows the root catch-all for that exact key.
+        let mut b = KeyTrie::new();
+        b.add_binding(&[], 0);
+        b.add_binding(&seq("a"), 42);
+        assert_eq!(exact(&b, "a"), Some(42)); // specific wins
+        assert_eq!(exact(&b, "z"), Some(0)); // root fires for others
+    }
+
+    #[test]
+    fn root_binding_does_not_override_partial() {
+        // When a key is a strict prefix of a longer binding, PartialMatch takes priority
+        // over the root catch-all — multi-key sequences still accumulate normally.
+        let mut b = KeyTrie::new();
+        b.add_binding(&[], 0);
+        b.add_binding(&seq("ab"), 1);
+        assert!(is_partial(&b, "a")); // "a" is a prefix, not caught by root
+        assert_eq!(exact(&b, "ab"), Some(1));
     }
 }
 

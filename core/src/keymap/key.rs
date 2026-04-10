@@ -443,14 +443,20 @@ mod tests {
             parse_key_sequence("<S-1>"),
             Ok(vec![KeyPress::new(
                 Key::Char('1'),
-                Modifiers { ctrl: false, shift: true }
+                Modifiers {
+                    ctrl: false,
+                    shift: true
+                }
             )])
         );
         assert_eq!(
             parse_key_sequence("<S-!>"),
             Ok(vec![KeyPress::new(
                 Key::Char('!'),
-                Modifiers { ctrl: false, shift: true }
+                Modifiers {
+                    ctrl: false,
+                    shift: true
+                }
             )])
         );
     }
@@ -459,7 +465,10 @@ mod tests {
     fn ctrl_shift_special_key() {
         let expected = KeyPress::new(
             Key::Special(SpecialKey::Up),
-            Modifiers { ctrl: true, shift: true },
+            Modifiers {
+                ctrl: true,
+                shift: true,
+            },
         );
         assert_eq!(seq("<C-S-Up>"), vec![expected.clone()]);
         assert_eq!(seq("<S-C-Up>"), vec![expected]);
