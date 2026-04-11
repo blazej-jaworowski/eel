@@ -513,3 +513,62 @@ pub mod tests {
         };
     }
 }
+
+#[cfg(test)]
+mod macro_tests {
+    use eel_macros::{key, keys};
+
+    use crate::keymap::KeyPress;
+    use crate::keymap::key::{Key, Modifiers, SpecialKey};
+
+    #[test]
+    fn key_macro_char() {
+        assert_eq!(key!("a"), KeyPress::char('a'));
+        assert_eq!(key!("Z"), KeyPress::char('Z'));
+        assert_eq!(key!("1"), KeyPress::char('1'));
+    }
+
+    #[test]
+    fn key_macro_special() {
+        assert_eq!(key!("<Enter>"), KeyPress::special(SpecialKey::Enter));
+        assert_eq!(key!("<Escape>"), KeyPress::special(SpecialKey::Escape));
+        assert_eq!(key!("<F5>"), KeyPress::special(SpecialKey::F(5)));
+        assert_eq!(key!("<PageUp>"), KeyPress::special(SpecialKey::PageUp));
+    }
+
+    #[test]
+    fn key_macro_modified() {
+        assert_eq!(
+            key!("<C-a>"),
+            KeyPress::new(Key::Char('a'), Modifiers::ctrl())
+        );
+        assert_eq!(
+            key!("<S-Up>"),
+            KeyPress::new(Key::Special(SpecialKey::Up), Modifiers::shift())
+        );
+    }
+
+    #[test]
+    fn keys_macro_sequence() {
+        assert_eq!(keys!("ab"), &[KeyPress::char('a'), KeyPress::char('b')]);
+        assert_eq!(
+            keys!("g<C-j>x"),
+            &[
+                KeyPress::char('g'),
+                KeyPress::new(Key::Char('j'), Modifiers::ctrl()),
+                KeyPress::char('x'),
+            ]
+        );
+    }
+
+    #[test]
+    fn keys_macro_empty() {
+        let seq: &[KeyPress] = keys!("");
+        assert!(seq.is_empty());
+    }
+
+    #[test]
+    fn keys_macro_single() {
+        assert_eq!(keys!("<Enter>"), &[KeyPress::special(SpecialKey::Enter)]);
+    }
+}

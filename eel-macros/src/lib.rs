@@ -30,6 +30,18 @@ pub fn keymap(input: TokenStream) -> TokenStream {
     keymap::keymap(input)
 }
 
+#[cfg(feature = "keymap")]
+#[proc_macro]
+pub fn key(input: TokenStream) -> TokenStream {
+    keymap::key(input)
+}
+
+#[cfg(feature = "keymap")]
+#[proc_macro]
+pub fn keys(input: TokenStream) -> TokenStream {
+    keymap::keys(input)
+}
+
 #[cfg(feature = "modal")]
 #[proc_macro]
 pub fn modal_keymap(input: TokenStream) -> TokenStream {

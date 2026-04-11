@@ -98,12 +98,7 @@ impl KeymapInput {
             pre_closure,
         } in &self.bindings
         {
-            let key_presses = eel_key_parse::parse_key_sequence(&seq.value())
-                .map_err(|e| syn::Error::new(seq.span(), format!("invalid key sequence: {e}")))?;
-            let kp_tokens: Vec<TokenStream2> = key_presses
-                .iter()
-                .map(|kp| emit_key_press(&eel, kp))
-                .collect();
+            let kp_tokens = parse_and_emit_sequence(&eel, seq)?;
             let seq_expr = quote! { &[#(#kp_tokens,)*] };
 
             match action {
@@ -131,6 +126,15 @@ impl KeymapInput {
             _m
         }})
     }
+}
+
+fn parse_and_emit_sequence(eel: &TokenStream2, lit: &LitStr) -> syn::Result<Vec<TokenStream2>> {
+    let key_presses = eel_key_parse::parse_key_sequence(&lit.value())
+        .map_err(|e| syn::Error::new(lit.span(), format!("invalid key sequence: {e}")))?;
+    Ok(key_presses
+        .iter()
+        .map(|kp| emit_key_press(eel, kp))
+        .collect())
 }
 
 fn emit_key_press(eel: &TokenStream2, kp: &eel_key_parse::KeyPress) -> TokenStream2 {
@@ -173,4 +177,38 @@ pub fn keymap(input: TokenStream) -> TokenStream {
         .emit()
         .unwrap_or_else(|e| e.into_compile_error())
         .into()
+}
+
+pub fn key(input: TokenStream) -> TokenStream {
+    let lit = syn::parse_macro_input!(input as LitStr);
+    let eel = crate::eel_path();
+    let kp_tokens = match parse_and_emit_sequence(&eel, &lit) {
+        Ok(v) => v,
+        Err(e) => return e.into_compile_error().into(),
+    };
+    match kp_tokens.as_slice() {
+        [kp] => kp.clone().into(),
+        [] => syn::Error::new(
+            lit.span(),
+            "expected exactly one key press, got empty string",
+        )
+        .into_compile_error()
+        .into(),
+        _ => syn::Error::new(
+            lit.span(),
+            format!("expected exactly one key press, got {}", kp_tokens.len()),
+        )
+        .into_compile_error()
+        .into(),
+    }
+}
+
+pub fn keys(input: TokenStream) -> TokenStream {
+    let lit = syn::parse_macro_input!(input as LitStr);
+    let eel = crate::eel_path();
+    let kp_tokens = match parse_and_emit_sequence(&eel, &lit) {
+        Ok(v) => v,
+        Err(e) => return e.into_compile_error().into(),
+    };
+    quote! { &[#(#kp_tokens,)*] }.into()
 }
