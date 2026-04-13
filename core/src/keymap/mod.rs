@@ -9,7 +9,7 @@ pub mod modal;
 
 pub use action::KeyAction;
 pub use key::{Key, KeyPress, KeySequence, Modifiers, SpecialKey};
-pub use map::{KeyMapping, Keymap, LocalizedKeymap, MatchResult, keymap};
+pub use map::{key, KeyMapping, keys, Keymap, LocalizedKeymap, MatchResult, keymap};
 
 #[cfg(feature = "modal")]
 pub use modal::{ModalKeymap, Mode, ModeController, modal_keymap};
@@ -37,8 +37,9 @@ pub mod tests {
     use std::sync::{Arc, mpsc};
 
     use super::{KeyEditor, KeyPress, Keymap, LocalizedKeymap, keymap};
-    use crate::keymap::key::{Key, Modifiers};
+    use crate::keymap::key::Key;
     use crate::keymap::map::KeyMapping;
+    use crate::keymap::{key, keys};
 
     /// Extension of [`KeyEditor`] for use in generic tests.
     ///
@@ -48,10 +49,6 @@ pub mod tests {
     /// The method must block until the key has been fully processed.
     pub trait TestKeyEditor: KeyEditor {
         fn send_test_key(&self, key: &KeyPress);
-    }
-
-    fn kp(c: char) -> KeyPress {
-        KeyPress::char(c)
     }
 
     fn collect(rx: &mpsc::Receiver<char>) -> Vec<char> {
@@ -69,8 +66,8 @@ pub mod tests {
             })
             .unwrap();
 
-        editor.send_test_key(&kp('a'));
-        editor.send_test_key(&kp('b'));
+        editor.send_test_key(&key!("a"));
+        editor.send_test_key(&key!("b"));
 
         assert_eq!(collect(&rx), vec!['a', 'b']);
     }
@@ -92,7 +89,7 @@ pub mod tests {
             })
             .unwrap();
 
-        editor.send_test_key(&kp('x'));
+        editor.send_test_key(&key!("x"));
 
         assert_eq!(collect(&rx), vec!['b']);
     }
@@ -112,7 +109,7 @@ pub mod tests {
         );
 
         km.activate().unwrap();
-        editor.send_test_key(&kp('a'));
+        editor.send_test_key(&key!("a"));
 
         assert_eq!(collect(&rx), vec!['x']);
     }
@@ -133,14 +130,14 @@ pub mod tests {
 
         km.activate().unwrap();
 
-        editor.send_test_key(&kp('a'));
+        editor.send_test_key(&key!("a"));
         assert_eq!(
             collect(&rx),
             vec![],
             "should not fire after prefix key only"
         );
 
-        editor.send_test_key(&kp('b'));
+        editor.send_test_key(&key!("b"));
         assert_eq!(collect(&rx), vec!['x']);
     }
 
@@ -161,13 +158,13 @@ pub mod tests {
         km.activate().unwrap();
 
         // "ax" — no match, should reset accumulator
-        editor.send_test_key(&kp('a'));
-        editor.send_test_key(&kp('x'));
+        editor.send_test_key(&key!("a"));
+        editor.send_test_key(&key!("x"));
         assert_eq!(collect(&rx), vec![], "no match should not fire");
 
         // "ab" sent fresh should fire
-        editor.send_test_key(&kp('a'));
-        editor.send_test_key(&kp('b'));
+        editor.send_test_key(&key!("a"));
+        editor.send_test_key(&key!("b"));
         assert_eq!(collect(&rx), vec!['x']);
     }
 
@@ -196,7 +193,7 @@ pub mod tests {
         km.set_local(current_buf, local);
 
         km.activate().unwrap();
-        editor.send_test_key(&kp('a'));
+        editor.send_test_key(&key!("a"));
 
         assert_eq!(collect(&rx), vec!['l']);
     }
@@ -229,7 +226,7 @@ pub mod tests {
 
         editor.set_current_buffer(&current_buf).unwrap();
         km.activate().unwrap();
-        editor.send_test_key(&kp('a'));
+        editor.send_test_key(&key!("a"));
 
         assert_eq!(collect(&rx), vec!['g']);
 
@@ -237,96 +234,88 @@ pub mod tests {
     }
 
     pub fn test_keypress_roundtrip<E: TestKeyEditor>(editor: E) {
-        use crate::keymap::key::SpecialKey;
-
         let cases: Vec<KeyPress> = vec![
             // Lowercase letters
-            KeyPress::char('a'),
-            KeyPress::char('z'),
+            key!("a"),
+            key!("z"),
             // Uppercase letters (canonical: Key::Char(uppercase) + no modifiers)
-            KeyPress::char('A'),
-            KeyPress::char('Z'),
+            key!("A"),
+            key!("Z"),
             // Digits
-            KeyPress::char('0'),
-            KeyPress::char('9'),
+            key!("0"),
+            key!("9"),
             // Common symbols
-            KeyPress::char(' '),
-            KeyPress::char('.'),
-            KeyPress::char(','),
-            KeyPress::char('/'),
-            KeyPress::char(';'),
-            KeyPress::char('\''),
-            KeyPress::char('`'),
-            KeyPress::char('['),
-            KeyPress::char(']'),
-            KeyPress::char('-'),
-            KeyPress::char('='),
+            key!(" "),
+            key!("."),
+            key!(","),
+            key!("/"),
+            key!(";"),
+            key!("'"),
+            key!("`"),
+            key!("["),
+            key!("]"),
+            key!("-"),
+            key!("="),
             // Shift-required symbol chars (plain Key::Char + no modifier in the model)
-            KeyPress::char('!'),
-            KeyPress::char('>'),
-            KeyPress::char('?'),
-            KeyPress::char('_'),
-            KeyPress::char('+'),
-            KeyPress::char('|'),
-            KeyPress::char('~'),
+            key!("!"),
+            key!(">"),
+            key!("?"),
+            key!("_"),
+            key!("+"),
+            key!("|"),
+            key!("~"),
             // Edge chars that require angle-bracket notation
-            KeyPress::char('<'),
-            KeyPress::char('\\'),
+            key!("<LT>"),
+            key!("\\"),
             // Ctrl+letter
-            KeyPress::new(Key::Char('a'), Modifiers::ctrl()),
-            KeyPress::new(Key::Char('z'), Modifiers::ctrl()),
+            key!("<C-a>"),
+            key!("<C-z>"),
             // Ctrl+digit
-            KeyPress::new(Key::Char('0'), Modifiers::ctrl()),
-            KeyPress::new(Key::Char('9'), Modifiers::ctrl()),
+            key!("<C-0>"),
+            key!("<C-9>"),
             // Ctrl + angle-bracket / backslash
-            KeyPress::new(Key::Char('<'), Modifiers::ctrl()),
-            KeyPress::new(Key::Char('\\'), Modifiers::ctrl()),
+            key!("<C-LT>"),
+            key!("<C-\\>"),
             // Ctrl+Shift+letter
-            KeyPress::new(
-                Key::Char('a'),
-                Modifiers {
-                    ctrl: true,
-                    shift: true,
-                },
-            ),
+            key!("<C-S-a>"),
             // Special keys (single raw bytes)
-            KeyPress::special(SpecialKey::Enter),
-            KeyPress::special(SpecialKey::Tab),
-            KeyPress::special(SpecialKey::Escape),
-            KeyPress::special(SpecialKey::Backspace),
+            key!("<Enter>"),
+            key!("<Tab>"),
+            key!("<Escape>"),
+            key!("<Backspace>"),
             // Special keys (require feedkeys notation expansion)
-            KeyPress::special(SpecialKey::Up),
-            KeyPress::special(SpecialKey::Down),
-            KeyPress::special(SpecialKey::Left),
-            KeyPress::special(SpecialKey::Right),
-            KeyPress::special(SpecialKey::Home),
-            KeyPress::special(SpecialKey::End),
-            KeyPress::special(SpecialKey::PageUp),
-            KeyPress::special(SpecialKey::PageDown),
-            KeyPress::special(SpecialKey::Delete),
-            KeyPress::special(SpecialKey::Insert),
+            key!("<Up>"),
+            key!("<Down>"),
+            key!("<Left>"),
+            key!("<Right>"),
+            key!("<Home>"),
+            key!("<End>"),
+            key!("<PageUp>"),
+            key!("<PageDown>"),
+            key!("<Delete>"),
+            key!("<Insert>"),
             // Ctrl + navigation keys
-            KeyPress::new(Key::Special(SpecialKey::Up), Modifiers::ctrl()),
-            KeyPress::new(Key::Special(SpecialKey::Down), Modifiers::ctrl()),
-            KeyPress::new(Key::Special(SpecialKey::Left), Modifiers::ctrl()),
-            KeyPress::new(Key::Special(SpecialKey::Right), Modifiers::ctrl()),
-            KeyPress::new(Key::Special(SpecialKey::Enter), Modifiers::ctrl()),
-            KeyPress::new(Key::Special(SpecialKey::Backspace), Modifiers::ctrl()),
+            key!("<C-Up>"),
+            key!("<C-Down>"),
+            key!("<C-Left>"),
+            key!("<C-Right>"),
+            key!("<C-Enter>"),
+            key!("<C-Backspace>"),
             // Shift + navigation/special keys
-            KeyPress::new(Key::Special(SpecialKey::Up), Modifiers::shift()),
-            KeyPress::new(Key::Special(SpecialKey::Down), Modifiers::shift()),
-            KeyPress::new(Key::Special(SpecialKey::Left), Modifiers::shift()),
-            KeyPress::new(Key::Special(SpecialKey::Right), Modifiers::shift()),
-            KeyPress::new(Key::Special(SpecialKey::Tab), Modifiers::shift()),
-            KeyPress::new(Key::Special(SpecialKey::Enter), Modifiers::shift()),
+            key!("<S-Up>"),
+            key!("<S-Down>"),
+            key!("<S-Left>"),
+            key!("<S-Right>"),
+            key!("<S-Tab>"),
+            key!("<S-Enter>"),
             // Function keys
-            KeyPress::special(SpecialKey::F(1)),
-            KeyPress::special(SpecialKey::F(6)),
-            KeyPress::special(SpecialKey::F(12)),
+            key!("<F1>"),
+            key!("<F6>"),
+            key!("<F12>"),
             // Modifier + function keys
-            KeyPress::new(Key::Special(SpecialKey::F(1)), Modifiers::shift()),
-            KeyPress::new(Key::Special(SpecialKey::F(12)), Modifiers::shift()),
-            KeyPress::new(Key::Special(SpecialKey::F(1)), Modifiers::ctrl()),
+            key!("<S-F1>"),
+            key!("<S-F12>"),
+            key!("<C-F1>"),
         ];
 
         let (tx, rx) = mpsc::channel::<KeyPress>();
@@ -374,7 +363,7 @@ pub mod tests {
         // Activate: no local binding present, global should fire.
         editor.set_current_buffer(&current_buf).unwrap();
         km.activate().unwrap();
-        editor.send_test_key(&kp('a'));
+        editor.send_test_key(&key!("a"));
 
         assert_eq!(collect(&rx), vec!['g']);
     }
@@ -390,7 +379,7 @@ pub mod tests {
 
         let tx1 = tx.clone();
         km.global_mut().add_binding(
-            &[kp('z')],
+            keys!("z"),
             Arc::new(move |_: &E| {
                 tx1.send('z').unwrap();
                 Ok(())
@@ -398,7 +387,7 @@ pub mod tests {
         );
 
         km.activate().unwrap();
-        editor.send_test_key(&kp('z'));
+        editor.send_test_key(&key!("z"));
 
         assert_eq!(collect(&rx), vec!['z']);
     }
@@ -419,13 +408,13 @@ pub mod tests {
 
         km.activate_keymap(editor.clone()).unwrap();
 
-        editor.send_test_key(&kp('a'));
+        editor.send_test_key(&key!("a"));
         assert_eq!(collect(&rx), vec!['a']);
 
-        editor.send_test_key(&kp('b'));
+        editor.send_test_key(&key!("b"));
         assert_eq!(collect(&rx), vec![], "partial match must not fire");
 
-        editor.send_test_key(&kp('c'));
+        editor.send_test_key(&key!("c"));
         assert_eq!(collect(&rx), vec!['b']);
     }
 
@@ -446,7 +435,7 @@ pub mod tests {
         km.activate_keymap(editor.clone()).unwrap();
 
         // Unmatched single key → catch-all fires.
-        editor.send_test_key(&kp('z'));
+        editor.send_test_key(&key!("z"));
         assert_eq!(
             collect(&rx),
             vec!['c'],
@@ -454,7 +443,7 @@ pub mod tests {
         );
 
         // Partial match → catch-all must NOT fire (still accumulating).
-        editor.send_test_key(&kp('a'));
+        editor.send_test_key(&key!("a"));
         assert_eq!(
             collect(&rx),
             vec![],
@@ -462,7 +451,7 @@ pub mod tests {
         );
 
         // Unmatched continuation ("az") → no specific binding → catch-all fires.
-        editor.send_test_key(&kp('z'));
+        editor.send_test_key(&key!("z"));
         assert_eq!(
             collect(&rx),
             vec!['c'],
@@ -470,8 +459,8 @@ pub mod tests {
         );
 
         // Specific binding wins — catch-all must be silent.
-        editor.send_test_key(&kp('a'));
-        editor.send_test_key(&kp('b'));
+        editor.send_test_key(&key!("a"));
+        editor.send_test_key(&key!("b"));
         assert_eq!(
             collect(&rx),
             vec!['x'],
@@ -516,7 +505,7 @@ pub mod tests {
 
 #[cfg(test)]
 mod macro_tests {
-    use eel_macros::{key, keys};
+    use crate::keymap::{key, keys};
 
     use crate::keymap::KeyPress;
     use crate::keymap::key::{Key, Modifiers, SpecialKey};

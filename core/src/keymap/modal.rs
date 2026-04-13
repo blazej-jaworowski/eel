@@ -261,8 +261,9 @@ pub mod tests {
     use std::sync::{Arc, mpsc};
 
     use super::{ModalKeymap, modal_keymap};
+    use crate::keymap::Keymap;
     use crate::keymap::tests::TestKeyEditor;
-    use crate::keymap::{KeyPress, Keymap};
+    use crate::keymap::key;
 
     #[derive(Debug, Clone, Eq, PartialEq, Hash)]
     enum TestMode {
@@ -271,10 +272,6 @@ pub mod tests {
     }
 
     impl super::super::Mode for TestMode {}
-
-    fn kp(c: char) -> KeyPress {
-        KeyPress::char(c)
-    }
 
     fn collect(rx: &mpsc::Receiver<char>) -> Vec<char> {
         rx.try_iter().collect()
@@ -296,12 +293,12 @@ pub mod tests {
         inner.activate_keymap(editor.clone()).unwrap();
 
         // In mode A, 'a' must be silently dropped.
-        editor.send_test_key(&kp('a'));
+        editor.send_test_key(&key!("a"));
         assert_eq!(collect(&rx), vec![], "key must not fire in wrong mode");
 
         // Switch to mode B — now 'a' must fire.
         mc.set_mode(TestMode::B);
-        editor.send_test_key(&kp('a'));
+        editor.send_test_key(&key!("a"));
         assert_eq!(collect(&rx), vec!['x']);
     }
 
@@ -329,12 +326,12 @@ pub mod tests {
         inner.activate_keymap(editor.clone()).unwrap();
 
         // 'i' in A switches to B, no output.
-        editor.send_test_key(&kp('i'));
+        editor.send_test_key(&key!("i"));
         assert_eq!(collect(&rx), vec![]);
         assert_eq!(mc.current_mode(), TestMode::B);
 
         // In B, 'a' fires B's binding ('x'), not A's ('y').
-        editor.send_test_key(&kp('a'));
+        editor.send_test_key(&key!("a"));
         assert_eq!(collect(&rx), vec!['x']);
     }
 
@@ -353,11 +350,11 @@ pub mod tests {
         inner.activate_keymap(editor.clone()).unwrap();
 
         // 'b' has no binding; must be silently dropped.
-        editor.send_test_key(&kp('b'));
+        editor.send_test_key(&key!("b"));
         assert_eq!(collect(&rx), vec![]);
 
         // 'a' still works — accumulator was properly reset.
-        editor.send_test_key(&kp('a'));
+        editor.send_test_key(&key!("a"));
         assert_eq!(collect(&rx), vec!['x']);
     }
 
@@ -376,11 +373,11 @@ pub mod tests {
         inner.activate_keymap(editor.clone()).unwrap();
 
         // 'a' alone is a partial match — must not fire yet.
-        editor.send_test_key(&kp('a'));
+        editor.send_test_key(&key!("a"));
         assert_eq!(collect(&rx), vec![]);
 
         // 'b' completes the sequence.
-        editor.send_test_key(&kp('b'));
+        editor.send_test_key(&key!("b"));
         assert_eq!(collect(&rx), vec!['x']);
     }
 
@@ -400,14 +397,14 @@ pub mod tests {
         inner.activate_keymap(editor.clone()).unwrap();
 
         // Start accumulating in A.
-        editor.send_test_key(&kp('a'));
+        editor.send_test_key(&key!("a"));
         assert_eq!(collect(&rx), vec![]);
 
         // Switch to B mid-sequence — clears accumulating flag.
         mc.set_mode(TestMode::B);
 
         // 'b' would complete the A sequence, but accumulating was cleared.
-        editor.send_test_key(&kp('b'));
+        editor.send_test_key(&key!("b"));
         assert_eq!(
             collect(&rx),
             vec![],
@@ -485,6 +482,7 @@ mod macro_tests {
     use super::*;
     use crate::keymap::key::parse_key_sequence;
     use crate::mock::{MockAction, MockEditor};
+    use crate::keymap::keys;
 
     #[derive(Debug, Clone, Eq, PartialEq, Hash)]
     enum Mode {
@@ -673,8 +671,7 @@ mod macro_tests {
                 },
             },
         };
-        let seq = parse_key_sequence("j").unwrap();
-        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq) {
+        if let MatchResult::ExactMatch(action) = km.match_sequence(keys!("j")) {
             action.call(&MockEditor).unwrap();
         } else {
             panic!("expected ExactMatch");
@@ -699,8 +696,7 @@ mod macro_tests {
         let mc = km.mode_controller();
         assert_eq!(mc.current_mode(), Mode::Normal);
 
-        let seq = parse_key_sequence("i").unwrap();
-        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq) {
+        if let MatchResult::ExactMatch(action) = km.match_sequence(keys!("i")) {
             action.call(&MockEditor).unwrap();
         } else {
             panic!("expected ExactMatch");
@@ -725,8 +721,7 @@ mod macro_tests {
                 },
             },
         };
-        let seq = parse_key_sequence("j").unwrap();
-        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq) {
+        if let MatchResult::ExactMatch(action) = km.match_sequence(keys!("j")) {
             action.call(&MockEditor).unwrap();
         } else {
             panic!("expected ExactMatch");
@@ -759,16 +754,14 @@ mod macro_tests {
         };
         let mc = km.mode_controller();
 
-        let seq_j = parse_key_sequence("j").unwrap();
-        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq_j) {
+        if let MatchResult::ExactMatch(action) = km.match_sequence(keys!("j")) {
             action.call(&MockEditor).unwrap();
         } else {
             panic!("expected ExactMatch for j");
         }
         assert!(*editor_seen.lock().unwrap());
 
-        let seq_i = parse_key_sequence("i").unwrap();
-        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq_i) {
+        if let MatchResult::ExactMatch(action) = km.match_sequence(keys!("i")) {
             action.call(&MockEditor).unwrap();
         } else {
             panic!("expected ExactMatch for i");
@@ -798,16 +791,14 @@ mod macro_tests {
             },
         };
 
-        let seq_j = parse_key_sequence("j").unwrap();
-        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq_j) {
+        if let MatchResult::ExactMatch(action) = km.match_sequence(keys!("j")) {
             action.call(&MockEditor).unwrap();
         } else {
             panic!("expected ExactMatch for j");
         }
         assert!(*block_fired.lock().unwrap());
 
-        let seq_k = parse_key_sequence("k").unwrap();
-        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq_k) {
+        if let MatchResult::ExactMatch(action) = km.match_sequence(keys!("k")) {
             action.call(&MockEditor).unwrap();
         } else {
             panic!("expected ExactMatch for k");
@@ -839,16 +830,14 @@ mod macro_tests {
         };
         let mc = km.mode_controller();
 
-        let seq_j = parse_key_sequence("j").unwrap();
-        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq_j) {
+        if let MatchResult::ExactMatch(action) = km.match_sequence(keys!("j")) {
             action.call(&MockEditor).unwrap();
         } else {
             panic!("expected ExactMatch for j");
         }
         assert!(*fired.lock().unwrap());
 
-        let seq_i = parse_key_sequence("i").unwrap();
-        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq_i) {
+        if let MatchResult::ExactMatch(action) = km.match_sequence(keys!("i")) {
             action.call(&MockEditor).unwrap();
         } else {
             panic!("expected ExactMatch for i");
@@ -863,7 +852,9 @@ mod macro_tests {
         let km: ModalKeymap<MockEditor, Mode, MockAction> = modal_keymap! {
             initial: Mode::Normal,
         };
-        let seq = parse_key_sequence("j").unwrap();
-        assert!(matches!(km.match_sequence(&seq), MatchResult::NoMatch));
+        assert!(matches!(
+            km.match_sequence(keys!("j")),
+            MatchResult::NoMatch
+        ));
     }
 }

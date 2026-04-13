@@ -249,7 +249,7 @@ impl<E: Editor, A: KeyAction<E> + Clone + Eq> Eq for KeyMapping<E, A> {}
 ///     "<C-j>" => Arc::new(|_: &MyEditor| Ok(())),
 /// };
 /// ```
-pub use eel_macros::keymap;
+pub use eel_macros::{key, keymap, keys};
 
 /// A keymap that dispatches to a per-buffer local inner keymap first, then
 /// falls back to the global inner keymap `K`.
@@ -363,145 +363,138 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::keymap::keys;
 
-    fn kp(c: char) -> KeyPress {
-        KeyPress::char(c)
-    }
-
-    fn seq(chars: &str) -> Vec<KeyPress> {
-        chars.chars().map(kp).collect()
-    }
-
-    fn exact(b: &KeyTrie<i32>, chars: &str) -> Option<i32> {
-        match b.match_sequence(&seq(chars)) {
+    fn exact(b: &KeyTrie<i32>, seq: &[KeyPress]) -> Option<i32> {
+        match b.match_sequence(seq) {
             MatchResult::ExactMatch(v) => Some(v),
             _ => None,
         }
     }
 
-    fn is_partial(b: &KeyTrie<i32>, chars: &str) -> bool {
-        matches!(b.match_sequence(&seq(chars)), MatchResult::PartialMatch)
+    fn is_partial(b: &KeyTrie<i32>, seq: &[KeyPress]) -> bool {
+        matches!(b.match_sequence(seq), MatchResult::PartialMatch)
     }
 
-    fn is_no_match(b: &KeyTrie<i32>, chars: &str) -> bool {
-        matches!(b.match_sequence(&seq(chars)), MatchResult::NoMatch)
+    fn is_no_match(b: &KeyTrie<i32>, seq: &[KeyPress]) -> bool {
+        matches!(b.match_sequence(seq), MatchResult::NoMatch)
     }
 
     #[test]
     fn exact_match_single_key() {
         let mut b = KeyTrie::new();
-        b.add_binding(&seq("a"), 1);
-        assert_eq!(exact(&b, "a"), Some(1));
+        b.add_binding(keys!("a"), 1);
+        assert_eq!(exact(&b, keys!("a")), Some(1));
     }
 
     #[test]
     fn exact_match_multi_key() {
         let mut b = KeyTrie::new();
-        b.add_binding(&seq("abc"), 42);
-        assert_eq!(exact(&b, "abc"), Some(42));
+        b.add_binding(keys!("abc"), 42);
+        assert_eq!(exact(&b, keys!("abc")), Some(42));
     }
 
     #[test]
     fn partial_match_prefix() {
         let mut b = KeyTrie::new();
-        b.add_binding(&seq("abc"), 1);
-        assert!(is_partial(&b, "a"));
-        assert!(is_partial(&b, "ab"));
+        b.add_binding(keys!("abc"), 1);
+        assert!(is_partial(&b, keys!("a")));
+        assert!(is_partial(&b, keys!("ab")));
     }
 
     #[test]
     fn no_match_absent() {
         let mut b = KeyTrie::new();
-        b.add_binding(&seq("abc"), 1);
-        assert!(is_no_match(&b, "x"));
-        assert!(is_no_match(&b, "abx"));
-        assert!(is_no_match(&b, "abcd"));
+        b.add_binding(keys!("abc"), 1);
+        assert!(is_no_match(&b, keys!("x")));
+        assert!(is_no_match(&b, keys!("abx")));
+        assert!(is_no_match(&b, keys!("abcd")));
     }
 
     #[test]
     fn exact_match_wins_over_partial() {
         // "ab" is both an exact binding AND a prefix of "abc".
         let mut b = KeyTrie::new();
-        b.add_binding(&seq("ab"), 10);
-        b.add_binding(&seq("abc"), 20);
-        assert_eq!(exact(&b, "ab"), Some(10));
-        assert_eq!(exact(&b, "abc"), Some(20));
-        assert!(is_partial(&b, "a"));
+        b.add_binding(keys!("ab"), 10);
+        b.add_binding(keys!("abc"), 20);
+        assert_eq!(exact(&b, keys!("ab")), Some(10));
+        assert_eq!(exact(&b, keys!("abc")), Some(20));
+        assert!(is_partial(&b, keys!("a")));
     }
 
     #[test]
     fn multiple_bindings_independent() {
         let mut b = KeyTrie::new();
-        b.add_binding(&seq("a"), 1);
-        b.add_binding(&seq("b"), 2);
-        b.add_binding(&seq("cd"), 3);
-        assert_eq!(exact(&b, "a"), Some(1));
-        assert_eq!(exact(&b, "b"), Some(2));
-        assert_eq!(exact(&b, "cd"), Some(3));
-        assert!(is_partial(&b, "c"));
-        assert!(is_no_match(&b, "d"));
+        b.add_binding(keys!("a"), 1);
+        b.add_binding(keys!("b"), 2);
+        b.add_binding(keys!("cd"), 3);
+        assert_eq!(exact(&b, keys!("a")), Some(1));
+        assert_eq!(exact(&b, keys!("b")), Some(2));
+        assert_eq!(exact(&b, keys!("cd")), Some(3));
+        assert!(is_partial(&b, keys!("c")));
+        assert!(is_no_match(&b, keys!("d")));
     }
 
     #[test]
     fn add_binding_replaces_existing() {
         let mut b = KeyTrie::new();
-        b.add_binding(&seq("a"), 1);
-        b.add_binding(&seq("a"), 99);
-        assert_eq!(exact(&b, "a"), Some(99));
+        b.add_binding(keys!("a"), 1);
+        b.add_binding(keys!("a"), 99);
+        assert_eq!(exact(&b, keys!("a")), Some(99));
     }
 
     #[test]
     fn remove_terminal_binding() {
         let mut b = KeyTrie::new();
-        b.add_binding(&seq("a"), 1);
-        b.remove_binding(&seq("a"));
-        assert!(is_no_match(&b, "a"));
+        b.add_binding(keys!("a"), 1);
+        b.remove_binding(keys!("a"));
+        assert!(is_no_match(&b, keys!("a")));
     }
 
     #[test]
     fn remove_preserves_sibling() {
         let mut b = KeyTrie::new();
-        b.add_binding(&seq("a"), 1);
-        b.add_binding(&seq("b"), 2);
-        b.remove_binding(&seq("a"));
-        assert!(is_no_match(&b, "a"));
-        assert_eq!(exact(&b, "b"), Some(2));
+        b.add_binding(keys!("a"), 1);
+        b.add_binding(keys!("b"), 2);
+        b.remove_binding(keys!("a"));
+        assert!(is_no_match(&b, keys!("a")));
+        assert_eq!(exact(&b, keys!("b")), Some(2));
     }
 
     #[test]
     fn remove_prunes_dead_interior_nodes() {
         let mut b = KeyTrie::new();
-        b.add_binding(&seq("abc"), 1);
-        b.remove_binding(&seq("abc"));
+        b.add_binding(keys!("abc"), 1);
+        b.remove_binding(keys!("abc"));
         // The interior nodes for 'a' and 'b' should be gone — verified via match.
-        assert!(is_no_match(&b, "a"));
-        assert!(is_no_match(&b, "ab"));
+        assert!(is_no_match(&b, keys!("a")));
+        assert!(is_no_match(&b, keys!("ab")));
         assert!(b.is_empty());
     }
 
     #[test]
     fn remove_prefix_keeps_longer_binding() {
         let mut b = KeyTrie::new();
-        b.add_binding(&seq("ab"), 1);
-        b.add_binding(&seq("abc"), 2);
+        b.add_binding(keys!("ab"), 1);
+        b.add_binding(keys!("abc"), 2);
         // Remove the shorter binding; the longer one must still work.
-        b.remove_binding(&seq("ab"));
+        b.remove_binding(keys!("ab"));
         // "ab" no longer has an action, but it IS still a prefix of "abc" → PartialMatch.
-        assert!(is_partial(&b, "ab"));
-        assert!(is_partial(&b, "a"));
-        assert_eq!(exact(&b, "abc"), Some(2));
+        assert!(is_partial(&b, keys!("ab")));
+        assert!(is_partial(&b, keys!("a")));
+        assert_eq!(exact(&b, keys!("abc")), Some(2));
     }
 
     #[test]
     fn empty_sequence_is_no_match() {
         // match_sequence(&[]) always returns NoMatch — no keypress has been accumulated.
         let mut b = KeyTrie::new();
-        b.add_binding(&seq("a"), 1);
-        assert!(is_no_match(&b, ""));
+        b.add_binding(keys!("a"), 1);
+        assert!(is_no_match(&b, &[]));
 
         // Even with a root catch-all binding, empty input is NoMatch.
         b.add_binding(&[], 99);
-        assert!(is_no_match(&b, ""));
+        assert!(is_no_match(&b, &[]));
     }
 
     #[test]
@@ -509,8 +502,8 @@ mod tests {
         // A root binding (`&[]`) fires for any key that has no more specific match.
         let mut b = KeyTrie::new();
         b.add_binding(&[], 99);
-        assert_eq!(exact(&b, "a"), Some(99));
-        assert_eq!(exact(&b, "z"), Some(99));
+        assert_eq!(exact(&b, keys!("a")), Some(99));
+        assert_eq!(exact(&b, keys!("z")), Some(99));
     }
 
     #[test]
@@ -518,9 +511,9 @@ mod tests {
         // A specific binding shadows the root catch-all for that exact key.
         let mut b = KeyTrie::new();
         b.add_binding(&[], 0);
-        b.add_binding(&seq("a"), 42);
-        assert_eq!(exact(&b, "a"), Some(42)); // specific wins
-        assert_eq!(exact(&b, "z"), Some(0)); // root fires for others
+        b.add_binding(keys!("a"), 42);
+        assert_eq!(exact(&b, keys!("a")), Some(42)); // specific wins
+        assert_eq!(exact(&b, keys!("z")), Some(0)); // root fires for others
     }
 
     #[test]
@@ -529,9 +522,9 @@ mod tests {
         // over the root catch-all — multi-key sequences still accumulate normally.
         let mut b = KeyTrie::new();
         b.add_binding(&[], 0);
-        b.add_binding(&seq("ab"), 1);
-        assert!(is_partial(&b, "a")); // "a" is a prefix, not caught by root
-        assert_eq!(exact(&b, "ab"), Some(1));
+        b.add_binding(keys!("ab"), 1);
+        assert!(is_partial(&b, keys!("a"))); // "a" is a prefix, not caught by root
+        assert_eq!(exact(&b, keys!("ab")), Some(1));
     }
 }
 
@@ -541,6 +534,7 @@ mod keymap_macro_tests {
     use crate::keymap::action::KeyAction;
     use crate::keymap::key::parse_key_sequence;
     use crate::mock::{MockAction, MockEditor};
+    use crate::keymap::keys;
 
     fn km_with_actions(bindings: &[(&str, u32)]) -> KeyMapping<MockEditor, MockAction> {
         let mut km = KeyMapping::new();
@@ -633,8 +627,7 @@ mod keymap_macro_tests {
                 Ok(())
             },
         };
-        let seq = parse_key_sequence("j").unwrap();
-        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq) {
+        if let MatchResult::ExactMatch(action) = km.match_sequence(keys!("j")) {
             action.call(&MockEditor).unwrap();
         } else {
             panic!("expected ExactMatch");
@@ -655,8 +648,7 @@ mod keymap_macro_tests {
             },
             "b" => Arc::new(|_: &MockEditor| Ok(())),
         };
-        let seq_a = parse_key_sequence("a").unwrap();
-        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq_a) {
+        if let MatchResult::ExactMatch(action) = km.match_sequence(keys!("a")) {
             action.call(&MockEditor).unwrap();
         }
         assert_eq!(*count.lock().unwrap(), 1);
@@ -677,8 +669,7 @@ mod keymap_macro_tests {
                 Ok(())
             },
         };
-        let seq = parse_key_sequence("j").unwrap();
-        if let MatchResult::ExactMatch(action) = km.match_sequence(&seq) {
+        if let MatchResult::ExactMatch(action) = km.match_sequence(keys!("j")) {
             action.call(&MockEditor).unwrap();
         } else {
             panic!("expected ExactMatch");
