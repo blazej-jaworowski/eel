@@ -327,10 +327,7 @@ pub mod tests {
         window.lock_write().close().expect("Failed to close window");
     }
 
-    pub fn test_window_get_buffer<E: WindowEditor>(editor: E)
-    where
-        E::BufferHandle: std::fmt::Debug,
-    {
+    pub fn test_window_get_buffer<E: WindowEditor>(editor: E) {
         let buffer = editor.new_buffer().expect("Failed to create buffer");
         let window = new_window(&editor, Some(&buffer));
 
@@ -348,10 +345,7 @@ pub mod tests {
         window.lock_write().close().expect("Failed to close window");
     }
 
-    pub fn test_window_set_buffer<E: WindowEditor>(editor: E)
-    where
-        E::BufferHandle: std::fmt::Debug,
-    {
+    pub fn test_window_set_buffer<E: WindowEditor>(editor: E) {
         let buf1 = editor.new_buffer().expect("Failed to create buffer 1");
         let buf2 = editor.new_buffer().expect("Failed to create buffer 2");
         let window = new_window(&editor, Some(&buf1));
@@ -436,10 +430,7 @@ pub mod tests {
         win2.lock_write().close().expect("close win2");
     }
 
-    pub fn test_window_atomic_write<E: WindowEditor>(editor: E)
-    where
-        E::BufferHandle: std::fmt::Debug,
-    {
+    pub fn test_window_atomic_write<E: WindowEditor>(editor: E) {
         let buf1 = editor.new_buffer().expect("Failed to create buffer 1");
         let buf2 = editor.new_buffer().expect("Failed to create buffer 2");
         let win1 = new_window(&editor, Some(&buf1));
@@ -886,7 +877,6 @@ pub mod tests {
                 editor_factory: $editor_factory,
                 editor_bounds: {
                     E: $crate::window::WindowEditor,
-                    E::BufferHandle: ::std::fmt::Debug,
                 },
                 module_path: $crate::window::tests,
                 prefix: $prefix,

@@ -6,6 +6,7 @@ use crate::{
     test_utils::{EditorFactory, new_buffer_with_content},
 };
 
+#[derive(Debug)]
 pub struct RegionEditor<E: Editor> {
     editor: E,
     empty: bool,

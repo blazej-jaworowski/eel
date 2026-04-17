@@ -163,7 +163,7 @@ where
     type WriteBuffer = B;
 }
 
-pub trait BufferHandle: Eq + Clone + Send + Sync + 'static {
+pub trait BufferHandle: Eq + Clone + std::fmt::Debug + Send + Sync + 'static {
     type ReadBuffer: ReadBuffer;
     type WriteBuffer: WriteBuffer;
     type ReadBufferLock: ReadBufferLock<ReadBuffer = Self::ReadBuffer> + 'static;

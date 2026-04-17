@@ -533,8 +533,8 @@ mod keymap_macro_tests {
     use super::*;
     use crate::keymap::action::KeyAction;
     use crate::keymap::key::parse_key_sequence;
-    use crate::mock::{MockAction, MockEditor};
     use crate::keymap::keys;
+    use crate::mock::{MockAction, MockEditor};
 
     fn km_with_actions(bindings: &[(&str, u32)]) -> KeyMapping<MockEditor, MockAction> {
         let mut km = KeyMapping::new();

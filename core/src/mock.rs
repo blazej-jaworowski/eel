@@ -5,6 +5,7 @@ use crate::{
     buffer::{self, ReadBuffer, WriteBuffer},
 };
 
+#[derive(Debug)]
 pub struct MockEditor;
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]

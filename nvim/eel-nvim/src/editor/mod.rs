@@ -52,6 +52,7 @@ impl BufferStore {
     }
 }
 
+#[derive(Debug)]
 pub struct NvimEditor {
     buffer_store: BufferStore,
     dispatcher: Arc<Dispatcher>,

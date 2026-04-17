@@ -1,6 +1,6 @@
 use crate::{Result, buffer::BufferHandle};
 
-pub trait Editor: Sized + Sync + Send + 'static {
+pub trait Editor: Sized + Sync + Send + std::fmt::Debug + 'static {
     type BufferHandle: BufferHandle;
 
     fn current_buffer(&self) -> Result<Self::BufferHandle>;

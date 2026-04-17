@@ -23,10 +23,11 @@ use super::{
 /// enum MyMode { Normal, Insert }
 /// impl Mode for MyMode {}
 /// ```
-pub trait Mode: Eq + std::hash::Hash + Clone + Send + Sync + 'static {}
+pub trait Mode: Eq + std::hash::Hash + Clone + std::fmt::Debug + Send + Sync + 'static {}
 
 /// Runtime state shared between a [`ModalKeymap`] and all [`ModeController`]
 /// clones that were derived from it.
+#[derive(Debug)]
 pub struct ModalState<M: Mode> {
     pub(crate) mode: M,
     /// Set to `true` when the first key of a new sequence arrives.
@@ -39,7 +40,7 @@ pub struct ModalState<M: Mode> {
 ///
 /// Obtained via [`ModalKeymap::mode_controller`].  Cheap to clone — all clones
 /// share the same underlying state.  Safe to capture in key-action closures.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ModeController<M: Mode> {
     state: Arc<Mutex<ModalState<M>>>,
 }
@@ -196,7 +197,7 @@ where
 impl<E, M, A> fmt::Debug for ModalKeymap<E, M, A>
 where
     E: Editor,
-    M: Mode + fmt::Debug,
+    M: Mode,
     A: KeyAction<E> + Clone,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -262,8 +263,8 @@ pub mod tests {
 
     use super::{ModalKeymap, modal_keymap};
     use crate::keymap::Keymap;
-    use crate::keymap::tests::TestKeyEditor;
     use crate::keymap::key;
+    use crate::keymap::tests::TestKeyEditor;
 
     #[derive(Debug, Clone, Eq, PartialEq, Hash)]
     enum TestMode {
@@ -481,8 +482,8 @@ macro_rules! eel_modal_tests {
 mod macro_tests {
     use super::*;
     use crate::keymap::key::parse_key_sequence;
-    use crate::mock::{MockAction, MockEditor};
     use crate::keymap::keys;
+    use crate::mock::{MockAction, MockEditor};
 
     #[derive(Debug, Clone, Eq, PartialEq, Hash)]
     enum Mode {

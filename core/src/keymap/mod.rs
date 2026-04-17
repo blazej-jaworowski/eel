@@ -9,7 +9,7 @@ pub mod modal;
 
 pub use action::KeyAction;
 pub use key::{Key, KeyPress, KeySequence, Modifiers, SpecialKey};
-pub use map::{key, KeyMapping, keys, Keymap, LocalizedKeymap, MatchResult, keymap};
+pub use map::{KeyMapping, Keymap, LocalizedKeymap, MatchResult, key, keymap, keys};
 
 #[cfg(feature = "modal")]
 pub use modal::{ModalKeymap, Mode, ModeController, modal_keymap};
