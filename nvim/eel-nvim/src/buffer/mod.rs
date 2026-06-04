@@ -119,7 +119,7 @@ impl WriteBuffer for NvimBuffer {
                 "modified",
                 true,
                 &nvim_oxi::api::opts::OptionOpts::builder()
-                    .buffer(buf.clone())
+                    .buf(buf.clone())
                     .build(),
             )?;
 

@@ -8,3 +8,11 @@ members = [
     "nvim/eel-nvim",
     "nvim/eel-nvim-macros",
 ]
+
+[patch.crates-io]
+nvim-oxi = { git = "https://github.com/noib3/nvim-oxi" }
+nvim-oxi-api = { git = "https://github.com/noib3/nvim-oxi" }
+nvim-oxi-libuv = { git = "https://github.com/noib3/nvim-oxi" }
+nvim-oxi-luajit = { git = "https://github.com/noib3/nvim-oxi" }
+nvim-oxi-macros = { git = "https://github.com/noib3/nvim-oxi" }
+nvim-oxi-types = { git = "https://github.com/noib3/nvim-oxi" }

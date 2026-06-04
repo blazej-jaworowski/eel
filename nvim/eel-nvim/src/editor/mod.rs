@@ -104,7 +104,7 @@ impl Editor for NvimEditor {
         let buf = self.dispatch(|| {
             let buf = nvim_oxi::api::create_buf(true, true)?;
             let opts = nvim_oxi::api::opts::OptionOpts::builder()
-                .buffer(buf.clone())
+                .buf(buf.clone())
                 .build();
 
             nvim_oxi::api::set_option_value("buftype", "nofile", &opts)?;
