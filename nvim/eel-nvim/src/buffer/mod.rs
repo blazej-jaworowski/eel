@@ -205,7 +205,18 @@ pub mod mark;
 
 #[cfg(feature = "nvim-tests")]
 mod tests {
-    use eel::{Editor, eel_full_tests};
+    use std::{
+        sync::{Arc, mpsc},
+        time::Duration,
+    };
+
+    use eel::{
+        Editor, Position,
+        buffer::BufferHandle,
+        eel_full_tests,
+        mark::{MarkReadBuffer, MarkWriteBuffer},
+        test_utils::new_buffer_with_content,
+    };
     use eel_nvim_macros::nvim_test;
 
     #[nvim_test(editor_factory = crate::test_utils::nvim_editor_factory)]
@@ -217,6 +228,125 @@ mod tests {
         let value = nvim_oxi::api::get_var::<String>(var_key).expect("Failed to get var");
 
         assert_eq!(value, original_value);
+    }
+
+    #[nvim_test(editor_factory = crate::test_utils::nvim_editor_factory)]
+    fn destroy_mark_does_not_wait_for_main_thread(editor: crate::editor::NvimEditor) {
+        const WAIT: Duration = Duration::from_millis(250);
+
+        let editor = Arc::new(editor);
+        let buffer = new_buffer_with_content(editor.as_ref(), "test");
+        let mark_id = {
+            let mut buffer_lock = buffer.write().expect("buffer dropped");
+            buffer_lock
+                .create_mark(&Position::new(0, 0))
+                .expect("Failed to create mark")
+        };
+
+        let (occupied_tx, occupied_rx) = mpsc::sync_channel(1);
+        let (start_destroy_tx, start_destroy_rx) = mpsc::sync_channel(1);
+        let (destroy_for_main_tx, destroy_for_main_rx) = mpsc::sync_channel(1);
+        let (destroy_done_tx, destroy_done_rx) = mpsc::sync_channel(1);
+        let (early_return_tx, early_return_rx) = mpsc::sync_channel(1);
+        let (main_read_tx, main_read_rx) = mpsc::sync_channel(1);
+        let (release_main_tx, release_main_rx) = mpsc::sync_channel(1);
+        let (occupier_done_tx, occupier_done_rx) = mpsc::sync_channel(1);
+
+        let destroy_worker = {
+            let buffer = buffer.clone();
+
+            std::thread::spawn(move || {
+                if start_destroy_rx.recv_timeout(WAIT).is_err() {
+                    let _ = destroy_for_main_tx.send(false);
+                    let _ = destroy_done_tx.send(Err("Timed out waiting to destroy mark".into()));
+                    return;
+                }
+
+                let (result, returned) = match buffer.write() {
+                    Ok(mut buffer_lock) => {
+                        let result = buffer_lock
+                            .destroy_mark(mark_id)
+                            .map_err(|error| error.to_string());
+                        drop(buffer_lock);
+                        (result, true)
+                    }
+                    Err(error) => (Err(error.to_string()), false),
+                };
+
+                let _ = destroy_for_main_tx.send(returned);
+                let _ = destroy_done_tx.send(result);
+            })
+        };
+
+        let occupier = {
+            let editor = Arc::clone(&editor);
+            let buffer = buffer.clone();
+
+            std::thread::spawn(move || {
+                let result = editor.dispatch(move || {
+                    let _ = occupied_tx.send(());
+                    let _ = start_destroy_tx.send(());
+
+                    let returned = destroy_for_main_rx.recv_timeout(WAIT).unwrap_or(false);
+                    let main_read_ok = returned
+                        && buffer
+                            .read()
+                            .and_then(|buffer_lock| buffer_lock.get_mark_position(mark_id))
+                            .is_ok();
+
+                    let _ = early_return_tx.send(returned);
+                    let _ = main_read_tx.send(main_read_ok);
+                    let _ = release_main_rx.recv_timeout(WAIT);
+                });
+
+                let _ = occupier_done_tx.send(result.is_ok());
+            })
+        };
+
+        let occupied = occupied_rx.recv_timeout(WAIT).is_ok();
+        let returned_while_occupied = early_return_rx.recv_timeout(WAIT).unwrap_or(false);
+        let main_read_ok = main_read_rx.recv_timeout(WAIT).unwrap_or(false);
+
+        let _ = release_main_tx.send(());
+
+        let barrier_ok = editor.dispatch(|| ()).is_ok();
+
+        let worker_result = destroy_done_rx.recv_timeout(WAIT).ok();
+        let occupier_result = occupier_done_rx.recv_timeout(WAIT).ok();
+
+        if worker_result.is_some() {
+            destroy_worker.join().expect("Mark destroy worker panicked");
+        }
+        if occupier_result.is_some() {
+            occupier.join().expect("Main occupier panicked");
+        }
+
+        let mark_gone_after_barrier = worker_result.is_some()
+            && buffer
+                .read()
+                .and_then(|buffer_lock| buffer_lock.get_mark_position(mark_id))
+                .is_err();
+
+        assert!(occupied, "Neovim main thread was not occupied");
+        assert!(
+            returned_while_occupied,
+            "destroy_mark waited for Neovim main thread"
+        );
+        assert!(main_read_ok, "Neovim main thread could not read the buffer");
+        assert!(
+            worker_result.is_some_and(|result| result.is_ok()),
+            "destroy_mark failed"
+        );
+        assert!(barrier_ok, "FIFO barrier did not complete");
+        assert_eq!(
+            occupier_result,
+            Some(true),
+            "Main-thread occupier did not complete"
+        );
+        assert!(
+            mark_gone_after_barrier,
+            "extmark was not gone after the FIFO barrier"
+        );
     }
 
     eel_full_tests!(

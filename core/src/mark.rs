@@ -24,6 +24,15 @@ pub trait MarkReadBuffer: ReadBuffer {
 
 pub trait MarkWriteBuffer: MarkReadBuffer + WriteBuffer {
     fn create_mark(&mut self, pos: &Position) -> Result<Self::MarkId>;
+
+    /// Destroys a mark while the buffer's write lock is held.
+    ///
+    /// An implementation may complete the deletion inline or enqueue it, but
+    /// it must not wait for an execution context that may access the same
+    /// buffer. `Ok(())` means that the deletion completed or was accepted for
+    /// later execution. Errors from later execution are handled by the
+    /// adapter, and callers must not assume that the mark is immediately
+    /// absent after this returns.
     fn destroy_mark(&mut self, id: Self::MarkId) -> Result<()>;
 
     fn set_mark_position(&mut self, id: Self::MarkId, pos: &Position) -> Result<()>;

@@ -15,9 +15,10 @@ where
     Buf: MarkReadBuffer<MarkId = B::MarkId>,
     L: ReadBufferLock<ReadBuffer = Buf> + 'a,
 {
+    // Drop the buffer lock before endpoint marks begin their cleanup.
+    buffer_lock: L,
     start: Mark<B>,
     end: Mark<B>,
-    buffer_lock: L,
     _mark: PhantomData<&'a ()>,
 }
 
@@ -191,9 +192,9 @@ impl<B: MarkBufferHandle> BufferHandle for BufferRegion<B> {
         let end = self.end.clone();
 
         Ok(Box::new(BufferRegionAccess {
+            buffer_lock: buffer.read()?,
             start,
             end,
-            buffer_lock: buffer.read()?,
             _mark: Default::default(),
         }))
     }
@@ -204,9 +205,9 @@ impl<B: MarkBufferHandle> BufferHandle for BufferRegion<B> {
         let end = self.end.clone();
 
         Ok(Box::new(BufferRegionAccess {
+            buffer_lock: buffer.write()?,
             start,
             end,
-            buffer_lock: buffer.write()?,
             _mark: Default::default(),
         }))
     }

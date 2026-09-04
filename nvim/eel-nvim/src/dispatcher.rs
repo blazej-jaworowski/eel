@@ -79,6 +79,21 @@ impl Dispatcher {
         })
     }
 
+    fn enqueue<F>(&self, func: F) -> std::result::Result<(), Error>
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        trace!("Sending function to dispatch");
+
+        if self.func_tx.send(Box::new(func)).is_err() {
+            return Err(Error::FuncSend);
+        }
+
+        trace!("Calling async handle");
+
+        self.async_handle.send().map_err(Error::from)
+    }
+
     fn inner_dispatch<F, R>(&self, func: F) -> std::result::Result<R, Error>
     where
         F: FnOnce() -> R + Send + 'static,
@@ -93,7 +108,7 @@ impl Dispatcher {
         let (result_tx, result_rx) = mpsc::sync_channel::<R>(1);
 
         let nvim_tid = self.nvim_thread_id;
-        let dispatch_func = Box::new(move || {
+        let dispatch_func = move || {
             if nvim_tid != std::thread::current().id() {
                 error!("Dispatched function called on non-nvim thread");
                 return;
@@ -108,19 +123,9 @@ impl Dispatcher {
             if result_tx.send(result).is_err() {
                 error!("Error while sending dispatch result");
             }
-        });
+        };
 
-        trace!("Sending function to dispatch");
-
-        if self.func_tx.send(dispatch_func).is_err() {
-            return Err(Error::FuncSend);
-        }
-
-        trace!("Calling async handle");
-
-        if let Err(e) = self.async_handle.send() {
-            return Err(e.into());
-        }
+        self.enqueue(dispatch_func)?;
 
         trace!("Awaiting result");
 
@@ -129,6 +134,20 @@ impl Dispatcher {
         trace!("Result received");
 
         Ok::<_, Error>(result)
+    }
+
+    /// Enqueues work for the Neovim thread without waiting for it to run.
+    ///
+    /// Unlike [`Self::dispatch`], this always uses the queue when called from
+    /// the Neovim thread, preserving queue order and avoiding reentrant work.
+    /// `Ok(())` means that the work was queued and the async handle was
+    /// notified, not that `func` completed.
+    pub(crate) fn dispatch_detached<F>(&self, func: F) -> Result<()>
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.enqueue(func)
+            .map_err(|e| EelError::from(NvimError::from(e)))
     }
 
     pub fn dispatch<F, R>(&self, func: F) -> Result<R>

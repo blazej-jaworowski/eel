@@ -3,6 +3,7 @@ use nvim_oxi::api::opts::{GetExtmarkByIdOpts, SetExtmarkOpts};
 use eel::{
     Position, Result,
     mark::{Gravity, MarkId, MarkReadBuffer, MarkWriteBuffer},
+    tracing::ResultExt,
 };
 
 use crate::{editor::get_eel_namespace, error::Error as NvimError, error::IntoNvimResult as _};
@@ -76,12 +77,17 @@ impl MarkWriteBuffer for NvimBuffer {
     fn destroy_mark(&mut self, id: Self::MarkId) -> Result<()> {
         let mut buf = self.inner_buf();
 
-        self.dispatcher
-            .dispatch(move || buf.del_extmark(get_eel_namespace(), id.into()))?
-            .into_nvim()?;
+        self.dispatcher.dispatch_detached(move || {
+            let _ = buf
+                .del_extmark(get_eel_namespace(), id.into())
+                .into_nvim()
+                .map(|_| ())
+                .log_err_msg("Failed to destroy mark");
+        })?;
 
         Ok(())
     }
+
     fn set_mark_position(&mut self, id: Self::MarkId, pos: &Position) -> Result<()> {
         let native_pos: NativePosition = pos.clone().into();
         let mut buf = self.inner_buf();
