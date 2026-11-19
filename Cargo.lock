@@ -229,7 +229,6 @@ dependencies = [
  "parking_lot",
  "thiserror",
  "tracing",
- "tracing-appender",
  "tracing-subscriber",
 ]
 

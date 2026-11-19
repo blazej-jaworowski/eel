@@ -13,7 +13,6 @@ eel-nvim-macros = { version = "0.0.3", path = "../eel-nvim-macros", optional = t
 nvim-oxi = { version = "0.6.0", features = ["libuv", "mlua", "neovim-0-12"] }
 thiserror = "2.0.17"
 tracing = "0.1.44"
-tracing-appender = "0.2.4"
 tracing-subscriber = "0.3.22"
 derivative = "2.2.0"
 parking_lot = { version = "0.12.5", features = ["arc_lock", "send_guard"] }
